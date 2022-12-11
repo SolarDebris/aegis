@@ -8,7 +8,7 @@ logging.getLogger("os").setLevel(logging.CRITICAL)
 logging.getLogger("pwnlib").setLevel(logging.CRITICAL)
 
 
-class Rage:
+class BufferOverflow(angr.Analysis):
     def __init__(self, binary):
         self.binary = binary
         self.proj = angr.Project(self.binary, load_options={"auto_load_libs":False})
@@ -52,12 +52,19 @@ class Rage:
         for error in simgr.errored:
             print(error)
 
-    def find_path(self, start_addr, goal_addr):
+class FormatVulnerability(angr.Analysis):
+    def __init__(self, binary):
+        self.binary = binary
 
-        buff_size = 600
-        self.symbolic_input = claripy.BVS("input", 8 * buff_size)
 
 
-    def find_path_function(self, function):
+class Printf(SimProcedure):
+    def run(self):
 
         return None
+
+
+
+
+
+angr.AnalysesHub.register_default("BufferOverflow", BufferOverflow)
