@@ -1,5 +1,5 @@
 # aegis
-Automatic Exploitation Generator
+Automatic Exploitation Generator Instrumentation Service
                   
 ```                  
                   /¯¯\
@@ -61,3 +61,13 @@ The main goal of the symbolic analysis module will be trying to deal with the ed
 
 ### Exploit Generator
 The exploit generator will take all the information from the static, dynamic, and symbolic analysis and create the exploit. 
+
+### Exploit Runner 
+The exploit runner will run the binary locally (if there is one) and then check if there is a flag in the output. If there is then send it to the remote server and get the flag.
+
+
+##### Running the program
+
+```
+./aegis -b binary_name (-l libc -r remote)
+```
