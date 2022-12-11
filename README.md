@@ -1,5 +1,7 @@
 # aegis
 Automatic Exploitation Generator
+                  
+```                  
                   /¯¯\
                   \__/
                    ||
@@ -40,6 +42,7 @@ Automatic Exploitation Generator
                  |  | |
                   \ |/
                    \/
+```
 
 ### Project Structure
 This is an updated version of RageAgainstTheMachine that is meant to vastly improve on in terms of project structure, exploits, and user interface. For some of the tools and libraries it uses Headless Binaryninja, ROPgadget, pwntools, and angr. For this I have split up the categories into three different files or categories. The first category is in static analysis which mainly uses headless binaryninja. The goal of this is to identify what type of problem this is and to then grab all the information that is needed for the exploit. The second category is dynamic analysis using a debugger. The purpose for this is also to grab information but also to grab information that static analysis can't grab.
