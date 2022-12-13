@@ -60,7 +60,6 @@ class FormatVulnerability(angr.Analysis):
 
 class Printf(SimProcedure):
     def run(self):
-
         return None
 
 

@@ -71,3 +71,44 @@ The exploit runner will run the binary locally (if there is one) and then check 
 ```
 ./aegis -b binary_name (-l libc -r remote)
 ```
+
+##### Problem Set and Methodology
+
+
+###### Stack Buffer Overflow
+
+```
+
+Variable Overflow
+
+Instruction Pointer Overwrite (Ret2Win)
+
+Return Oreinted Programming
+
+    * Return to System
+    * Return to Execve
+    * Return to Syscall
+      * execve("/bin/sh")
+      * open sendfile
+    * Return to Libc
+      * Given libc address
+      * Libc puts leak
+      * Libc format leak 
+    * Write Primitives
+    * SIGROP
+    * Ret2DLResolve
+
+```
+
+###### Format Vulnerabilities
+
+```
+Format Stack Leak
+Format Variable Write
+Format GOT overwrite
+Format Leak Canary
+
+```
+
+`
+
