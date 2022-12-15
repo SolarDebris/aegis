@@ -1,7 +1,10 @@
+import sys
+import os
 import binaryninja as bn
+import ropgadget
 
-
-
+# This class is strictly for getting things out of the binary through static
+# analysis
 class Machine:
     def __init__(self, binary):
         self.binary = binary
@@ -27,6 +30,9 @@ class Machine:
     # This function will find a vulnerable printf in which the format specifier
     # is symbolic
     def find_vuln_printf(self):
+
+
+
         return addresses
 
     # This function will return the difference between the amount of user input allowed
@@ -38,10 +44,42 @@ class Machine:
 
         return size
 
-
     # Returns names of functions in the got that can be overwritten after a certain address
     def find_got_addresses(self):
         return None
 
+    # Return the address of an important string being /bin/sh, cat flag.txt, or flag.txt
+    def find_string_address(self):
+        return None
 
-#mach = Machine("./")
+    # Returns the address of system("/bin/sh") or any other one_gadget
+    def find_ret2win(self):
+        return None
+
+    # Return a pop register gadget with the least amount of instructions
+    def find_pop_reg_gadget(self, register):
+
+        #sys.argv = ["ropgadget", "--binary", self.binary, "--re", f"{register}", "--only", "pop|ret"]
+        #args = ropgadget.args.Args().getArgs()
+        #core = ropgadget.core.Core(args)
+        #core.do_binary(self.binary)
+        #core.do_load(0)
+        #sys.stdout = stdout
+
+        return None
+
+    # Return a mov register gadget with the least amount of instructions that is valid
+    def find_mov_reg_gadget(self, register):
+        return None
+
+    # Return a write primitive gadget with priority of it being 64 bit registers
+    def find_write_gadget(self):
+        return None
+
+    # Return libc base address given the input
+    def get_libc_offset(self, stdin):
+        return None
+
+
+if __name__ == "__main__":
+    mach = Machine("./bins/bin-ret2win-0")

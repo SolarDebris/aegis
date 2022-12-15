@@ -26,7 +26,7 @@ Automatic Exploitation Generator Instrumentation Service
 |       / /    - ||   | -    \ \       |
 |O   __/  | __   ||   |   __ |  \__   O|
 | ---     |/  -_/||   |\_-  \|     --- | 
-|O|            \ ||   | /            |O|  
+|O|            \ ||   | /            |O|
 \ '              ||   |        ^~DLF ' /
  \O\    _-¯?.    ||   |    .?¯-_    /O/
   \ \  /  /¯¯¯?  ||   |  ?¯¯¯\  \  / /
@@ -110,5 +110,10 @@ Format Leak Canary
 
 ```
 
-`
+###### Other Vulnerabilities
+
+```
+Integer Overflow
+Bad Seed
+```
 

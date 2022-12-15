@@ -66,4 +66,6 @@ class Printf(SimProcedure):
 
 
 
+
 angr.AnalysesHub.register_default("BufferOverflow", BufferOverflow)
+angr.AnalysesHub.register_defautl("FormatVulnerability", FormatVulnerability)
