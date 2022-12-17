@@ -69,7 +69,7 @@ The exploit runner will run the binary locally (if there is one) and then check 
 ##### Running the program
 
 ```
-./aegis -b binary_name (-l libc -r remote)
+./aegis (-bin binary_name -lib libc)
 ```
 
 ##### Problem Set and Methodology

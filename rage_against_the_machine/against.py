@@ -7,8 +7,6 @@ class Against:
     def __init__(self, binary_path, libc):
         self.binary = binary_path
 
-
-
     def rop_chain_write_string(self, string):
         chain = b""
         return chain
