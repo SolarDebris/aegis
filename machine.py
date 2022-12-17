@@ -18,6 +18,10 @@ class Machine:
         self.strings = self.bv.strings
         self.sections = self.bv.sections
         self.segments = self.bv.segments
+        self.register_args = self.bv.platform.default_calling_convention.int_arg_regs
+
+
+        self.padding_size = 0
 
     # This function will go through the symbol table and the plt to find
     # important functions
@@ -45,24 +49,24 @@ class Machine:
             if function.name == "exit":
                 useful_functions.append("exit")
 
-
         return useful_functions
 
     # This function will find a vulnerable printf in which the format specifier
     # is a stack value and that the vargs is undetermined
     def find_vulnerable_printf(self):
+        addresses = []
         for function in self.functions:
             for block in function.medium_level_il:
                 for instruction in block:
                     if instruction.operation == bn.MediumLevelILOperation.MLIL_CALL:
-                        format_specifier = instruction.get_reg_value("rdi")
-                        vargs = instruction.get_reg_value("rsi")
+                        format_specifier = instruction.get_reg_value(self.register_args[0])
+                        vargs = instruction.get_reg_value(self.register_args[1])
                         if len(instruction.params) > 0 and type(instruction.params[0]) == bn.mediumlevelil.MediumLevelILVar:
                             name = self.bv.get_function_at(instruction.dest.constant).name
                             if "printf" in name:
                                 print(f"Found vulnerable printf {hex(instruction.address)}")
-                                return instruction.address
-        return None
+                                addresses.append(instruction.address)
+        return addresses
 
     # This function will find vulnerable copies like strcpy, strncpy, and memcpy
     def find_vulnerable_copy(self):
@@ -71,8 +75,25 @@ class Machine:
                 for instruction in block:
                     if instruction.operation == bn.MediumLevelILOperation.MLIL_CALL:
                         name = self.bv.get_function_at(instruction.dest.constant).name
+                        if name == "memcpy" or name == "strcpy" or name == "strncpy":
+                            self.check_overflow(instruction)
+
 
         return None
+
+
+    # Function that checks for standard input functions and runs check overflow on them
+    def find_vulnerable_input(self):
+        for function in self.functions:
+            for block in function.medium_level_il:
+                for instruction in block:
+                    if instruction.operation == bn.MediumLevelILOperation.MLIL_CALL:
+                        name = self.bv.get_function_at(instruction.dest.constant).name
+                        if name == "gets" or name == "fgets" or name == "read":
+                            self.check_overflow(instruction)
+        return None
+
+
 
     # This function will return a writable address in the binary without
     # interfering with variables
@@ -88,37 +109,33 @@ class Machine:
         return None
 
 
-    # Returns the variable that is given input and the size of that input
-    def get_inputs(self, function: bn.function.Function):
+    # Returns if there is an overflow with the given medium level il instruction
+    def check_overflow(self, instruction: bn.mediumlevelil.MediumLevelILCall):
+        function = self.bv.get_function_at(instruction.dest.constant)
+        var = None
+        buff = None
 
-        inputs = dict()
-        print(function.stack_layout)
+        # If function is reading in something to a variable,
+        # we check the space the stack has before and make sure that the
+        # input is less than or equal to the space the stack has left befor
+        if "gets" in function.name or "read" in function.name:
 
-        # For each input function find the name of the variable on the stack that is used for input
-        # also get the size that is being put into that variable
-        for block in function.medium_level_il:
-            for instruction in block:
-                if instruction.operation == bn.MediumLevelILOperation.MLIL_CALL:
-                    name = self.bv.get_function_at(instruction.dest.constant).name
-                    if name == "fgets":
-                        buff = instruction.get_reg_value("rdi")
-                        var_name = "var_" + hex(buff.value * -1).split("0x")[1]
-                        size = instruction.params[1].constant
-                        inputs.update({var_name: size})
-                    elif name == "gets":
-                        buff = instruction.get_reg_value("rdi")
-                        var_name = "var_" + hex(buff.value * -1).split("0x")[1]
-                        size = -1
-                        inputs.update({var_name: size})
-                    elif name == "read":
-                        buff = instruction.get_reg_value("rsi")
-                        # Get the name of the buffer that is on the stack
-                        var_name = "var_" + hex(buff.value * -1).split("0x")[1]
-                        size = instruction.params[2].constant
-                        inputs.update({var_name: size})
-        print(inputs)
-        return inputs
+            # Get the variable name that is in the input
+            if function.name == "fgets" or function.name == "gets":
+                buff = instruction.get_reg_value(self.register_args[0])
+            elif function.name == "read":
+                buff = instruction.get_reg_value(self.register_args[1])
 
+            var = "var_" + hex(buff.value * -1).split("0x")[1]
+
+
+
+        elif "cpy" in function.name:
+            input_var = None
+            output_var = None
+
+
+        return None
 
     # Returns the size of a buffer in a certain function not including the base pointer and the instruction
     # pointer
@@ -213,14 +230,11 @@ if __name__ == "__main__":
 
     parser.add_argument("-b", metavar="binary", type=str, help="The binary you are executing", default=None)
     parser.add_argument("-l", metavar="libc", type=str, help="The libc shared library object linked to the binary", default=None)
-    #parser.add_argument("gdb", type=bool, help="Option to debug binaries being ran", default=None)
-    #parser.add_argument("remote",  type=bool, help="The binary you are executing", default=None)
 
     args = parser.parse_args()
 
 
     mach = Machine(args.b)
-    #mach = Machine("./bins/bin-ret2win-0")
 
     address = mach.find_vulnerable_printf()
 

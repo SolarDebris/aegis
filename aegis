@@ -1,0 +1,58 @@
+#!/bin/env python3
+
+import logging
+import argparse
+
+
+class aegis:
+    def __init__(self, binary, libc):
+        self.binary = binary
+
+
+
+
+if __name__ == "__main__":
+
+    print("""
+   |\                     /)
+ /\_\\__               (_//
+|   `>\-`     _._       //`)
+ \ /` \\  _.-`:::`-._  //
+  `    \|`    :::    `|/
+        |     :::     |
+        |.....:::.....|
+        |:::::::::::::|
+        |     :::     |
+        \     :::     /
+         \    :::    /
+          `-. ::: .-'
+           //`:::`\\
+          //   '   \\
+         |/         \\
+
+   ▄████████    ▄████████    ▄██████▄   ▄█     ▄████████
+  ███    ███   ███    ███   ███    ███ ███    ███    ███
+  ███    ███   ███    █▀    ███    █▀  ███▌   ███    █▀
+  ███    ███  ▄███▄▄▄      ▄███        ███▌   ███
+▀███████████ ▀▀███▀▀▀     ▀▀███ ████▄  ███▌ ▀███████████
+  ███    ███   ███    █▄    ███    ███ ███           ███
+  ███    ███   ███    ███   ███    ███ ███     ▄█    ███
+  ███    █▀    ██████████   ████████▀  █▀    ▄████████▀
+
+    """)
+
+    parser = argparse.ArgumentParser(
+        prog = "Aegis",
+        description = "An automatic exploit generator framework using binaryninja, angr, ROPgadget, and pwntools"
+    )
+
+
+    parser.add_argument("-bin", metavar="binary", type=str, help="The binary that is to be exploited", default=None)
+    parser.add_argument("-lib", metavar="libc", type=str, help="The libc shared library object linked to the binary", default=None)
+    parser.add_argument("-ip", metavar="ip", type=str, help="The ip address of the remote challenge", default=None)
+    parser.add_argument("-port", metavar="port", type=str, help="The port of the remote challenge", default=None)
+    parser.add_argument("-login", metavar="login", type=str, help="Your login to your ctfd account", default=None)
+    parser.add_argument("-pw", metavar="password", type=str, help="Your password to your ctfd account", default=None)
+    parser.add_argument("-ctfd", metavar="website", type=str, help="The ctfd webpage", default=None)
+
+    arguments = parser.parse_args()

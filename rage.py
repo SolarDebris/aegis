@@ -14,6 +14,8 @@ class BufferOverflow(angr.Analysis):
         self.proj = angr.Project(self.binary, load_options={"auto_load_libs":False})
         self.cfg = self.proj.analyses.CFGFast()
 
+        self.stack_smash()
+
 
     def check_memory_corruption(self, simgr):
         if simgr.unconstrained:
