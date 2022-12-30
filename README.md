@@ -26,7 +26,7 @@ Automatic Exploitation Generator Instrumentation Service
 |       / /    - ||   | -    \ \       |
 |O   __/  | __   ||   |   __ |  \__   O|
 | ---     |/  -_/||   |\_-  \|     --- | 
-|O|            \ ||   | /            |O|  
+|O|            \ ||   | /            |O|
 \ '              ||   |        ^~DLF ' /
  \O\    _-¯?.    ||   |    .?¯-_    /O/
   \ \  /  /¯¯¯?  ||   |  ?¯¯¯\  \  / /
@@ -51,10 +51,11 @@ This is an updated version of RageAgainstTheMachine that is meant to vastly impr
 This will include running the binary with running all three modules in the binary and choosing which exploit to use. It will also include the logging and ctfd submit script. 
 
 ### Static Analysis
-The static analyis file will check for is things like printf vulnerabilities and snippets of code that have vulnerabilities. It will also check symbol tables, the got, plt, and data. 
+The static analyis file will check for is things like printf vulnerabilities and snippets of code that have vulnerabilities. It will also check symbol tables, the got, plt, and data. This module is stored in the machine.py file and is used to grab information out of the binary. 
 
 ### Dynamic Analysis
-The dynamic analysis will mostly grab values and addresses that are specific at run time and will colaborate with the 
+The dynamic analysis will mostly grab values and addresses that are specific at run time and will colaborate with the static analysis. 
+The main purpose will be to try to either wrap GDB to make it headless or to use the binaryninja debugger when it comes out. 
 
 ### Symbolic Analysis
 The main goal of the symbolic analysis module will be trying to deal with the edge cases that aren't expected in the dynamic and static analysis section. This is mainly useful for path finding, say if we need to know how to get to a specific function. 
