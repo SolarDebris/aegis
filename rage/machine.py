@@ -70,29 +70,37 @@ class Machine:
             input_size = 0
             # Get the variable name that is in the input
             if dest_function.name == "__isoc99_scanf":
-                buff = instruction.get_reg_value(self.reg_args[1])
-                # !TODO Check if variable is on the stack
-                # !TODO Check if format specifier is %s
-                input_size = 10000
+                if type(instruction.params[1].value) == bn.variable.StackFrameOffsetRegisterValue:
+                    if type(instruction.params[0]) == bn.mediumlevelil.MediumLevelILConstPtr:
+                        # !TODO Dynamically get size of data var
+                        var_size = self.bv.get_data_var_at(instruction.params[0].constant)
+                        print(type(var_size))
+                        c_string_type = self.bv.parse_type_string("char const foo[3]")
+                        format_var = self.bv.define_user_data_var(instruction.params[0].constant, c_string_type[0])
+                        if format_var.value == b"%s\x00":
+                            buff = instruction.get_reg_value(self.reg_args[1]).value
+                            input_size = 10000
 
             if dest_function.name == "fgets":
-                buff = instruction.get_reg_value(self.reg_args[0])
-
-                input_size = instruction.params[1].constant
+                if type(instruction.params[0]) == bn.variable.StackFrameOffsetRegisterValue:
+                    buff = instruction.get_reg_value(self.reg_args[0]).value
+                    input_size = instruction.params[1].constant
 
             elif dest_function.name == "gets":
-                buff = instruction.get_reg_value(self.reg_args[0])
-                input_size = 10000
-                self.buffer_overflow = True
+                if type(instruction.params[0]) == bn.mediumlevelil.MediumLevelILVar:
+                    buff = instruction.get_reg_value(self.reg_args[0]).value
+                    input_size = 10000
+                    self.buffer_overflow = True
 
             elif dest_function.name == "read":
-                input_size = instruction.params[2].constant
-                buff = instruction.get_reg_value(self.reg_args[1])
+                if type(instruction.params[1]) == bn.variable.StackFrameOffsetRegisterValue:
+                    input_size = instruction.params[2].constant
+                    buff = instruction.get_reg_value(self.reg_args[1]).value
 
-            var = "var_" + hex(buff.value * -1).split("0x")[1]
-
+            if type(buff) == int:
+                var = "var_" + hex(buff * -1).split("0x")[1]
             self.padding_size = self.get_padding_size(function, var)
-            if self.padding_size  < input_size:
+            if self.padding_size < input_size:
                 print(f"Found buffer overflow with a padding of {self.padding_size}")
                 self.buffer_overflow = True
 
@@ -369,10 +377,8 @@ class Machine:
         reg2 = min_gadget.split(b"[")[1].split(b",")[1].split(b"]")[0].split(b";")[0].strip()
         return min_gadget, reg1, reg2
 
-    def rename_analysis(self):        """Function that will rename variables and functions in order to make
-        analysis easier"""
-        # If there is a canary find the function that uses stack_check_fail
-        # and rename the canary variable on the stack
+    def rename_analysis(self):
+        """Rename variables and functions in order to make analysis easier."""
         self.canary_var = None
         if self.canary:
             for function in self.functions:
@@ -392,8 +398,7 @@ class Machine:
                                     print(canary_variable.name)
                                     print(function.stack_layout)
 
-        return None
-
+        return
 
 if __name__ == "__main__":
 
