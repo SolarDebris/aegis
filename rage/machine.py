@@ -1,14 +1,14 @@
+import sys
 import subprocess
-import ropgadget
 import argparse
 import logging
 import pwn
 
 import binaryninja as bn
 
+
 class Machine:
-    """Class that is used for static analysis of a binary and grabbing
-    other information out of a binary"""
+    """Class that is used for static analysis of a binary."""
 
     def __init__(self, binary):
         """Set up all variables for the class."""
@@ -19,8 +19,8 @@ class Machine:
         self.strings = self.bv.strings
         self.sections = self.bv.sections
         self.segments = self.bv.segments
-        self.reg_args = self.bv.platform.default_calling_convention.int_arg_regs
         self.sys_reg_args = self.bv.platform.system_call_convention.int_arg_regs
+        self.reg_args = self.bv.platform.default_calling_convention.int_arg_regs
 
         self.padding_size = 0
 
@@ -60,26 +60,24 @@ class Machine:
         """
         function = self.bv.get_functions_containing(instruction.address)[0]
         dest_function = self.bv.get_function_at(instruction.dest.constant)
-        var = None
-        buff = None
 
         # If function is reading in something to a variable,
         # we check the space the stack has before and make sure that the
         # input is less than or equal to the space the stack has left befor
         if "gets" in dest_function.name or "read" in dest_function.name or "scanf" in dest_function.name:
             input_size = 0
+            buff = None
+            var = None
             # Get the variable name that is in the input
             if dest_function.name == "__isoc99_scanf":
                 if type(instruction.params[1].value) == bn.variable.StackFrameOffsetRegisterValue:
                     if type(instruction.params[0]) == bn.mediumlevelil.MediumLevelILConstPtr:
                         # !TODO Dynamically get size of data var
-                        var_size = self.bv.get_data_var_at(instruction.params[0].constant)
-                        print(type(var_size))
                         c_string_type = self.bv.parse_type_string("char const foo[3]")
                         format_var = self.bv.define_user_data_var(instruction.params[0].constant, c_string_type[0])
                         if format_var.value == b"%s\x00":
                             buff = instruction.get_reg_value(self.reg_args[1]).value
-                            input_size = 10000
+                            input_size = sys.maxsize
 
             if dest_function.name == "fgets":
                 if type(instruction.params[0]) == bn.variable.StackFrameOffsetRegisterValue:
@@ -88,17 +86,23 @@ class Machine:
 
             elif dest_function.name == "gets":
                 if type(instruction.params[0]) == bn.mediumlevelil.MediumLevelILVar:
+                    print(self.reg_args)
                     buff = instruction.get_reg_value(self.reg_args[0]).value
-                    input_size = 10000
+                    input_size = sys.maxsize
                     self.buffer_overflow = True
 
             elif dest_function.name == "read":
                 if type(instruction.params[1]) == bn.variable.StackFrameOffsetRegisterValue:
                     input_size = instruction.params[2].constant
                     buff = instruction.get_reg_value(self.reg_args[1]).value
+                elif type(instruction.params[1]) == bn.mediumlevelil.MediumLevelILVar:
+                    input_size = instruction.params[2].constant
+                    buff = instruction.get_reg_value(self.reg_args[1]).value
+
 
             if type(buff) == int:
                 var = "var_" + hex(buff * -1).split("0x")[1]
+            print(var)
             self.padding_size = self.get_padding_size(function, var)
             if self.padding_size < input_size:
                 print(f"Found buffer overflow with a padding of {self.padding_size}")
@@ -106,8 +110,43 @@ class Machine:
 
         # !TODO Get buffer size for vulnerable memcpy/strcpy
         elif "cpy" in dest_function.name:
-            input_var = None
-            output_var = None
+            dest_var_name = None
+            source_var_name = None
+            copy_size = 0
+            buffer_size = 0
+
+            if dest_function.name == "strcpy":
+                dest_var_offset = instruction.get_reg_value(self.reg_args[0])
+                source_var_offset = instruction.get_reg_value(self.reg_args[1])
+
+                dest_var_name = "var_" + hex(dest_var_offset.value * -1).split("0x")[1]
+                source_var_name = "var_" + hex(source_var_offset.value * -1).split("0x")[1]
+            elif dest_function.name == "strncpy":
+                dest_var_offset = instruction.get_reg_value(self.reg_args[0])
+                source_var_offset = instruction.get_reg_value(self.reg_args[1])
+                copy_size = instruction.params[2].constant
+
+                dest_var_name = "var_" + hex(dest_var_offset.value * -1).split("0x")[1]
+                source_var_name = "var_" + hex(source_var_offset.value * -1).split("0x")[1]
+
+            dest_size = self.get_variable_size(function, dest_var_name)
+            source_size = self.get_variable_size(function, source_var_name)
+
+            if copy_size > 0:
+                # Check which one is less copy limit or source size and set to buffer size
+                if source_size >= copy_size:
+                    buffer_size = source_size
+                else:
+                    buffer_size = copy_size
+            else:
+                buffer_size = source_size
+
+            padding_size = self.get_padding_size(function, dest_var_name)
+            #padding_size = self.get_padding_size(function, source_var_name)
+            print(dest_size, buffer_size, padding_size)
+
+            if padding_size < buffer_size:
+                print(f"Found a copy buffer overflow with {padding_size}")
 
     def check_win_function(self, function: bn.function.Function):
         """Check if the current function qualifies as a win function."""
@@ -136,9 +175,12 @@ class Machine:
             for block in function.medium_level_il:
                 for instruction in block:
                     if instruction.operation == bn.MediumLevelILOperation.MLIL_CALL:
-                        name = self.bv.get_symbol_at(instruction.dest.constant).name
-                        if name == "memcpy" or name == "strcpy" or name == "strncpy":
-                            self.check_overflow(instruction)
+                        if type(instruction.dest) == bn.mediumlevelil.MediumLevelILConstPtr:
+                            symbol = self.bv.get_symbol_at(instruction.dest.constant)
+                            if symbol is not None:
+                                name = symbol.name
+                                if name == "memcpy" or name == "strcpy" or name == "strncpy":
+                                    self.check_overflow(instruction)
 
     def check_vulnerable_input(self):
         """Check for stack overflow in user input functions."""
@@ -148,9 +190,11 @@ class Machine:
                 for instruction in block:
                     if instruction.operation == bn.MediumLevelILOperation.MLIL_CALL:
                         if type(instruction.dest) == bn.mediumlevelil.MediumLevelILConstPtr:
-                            name = self.bv.get_symbol_at(instruction.dest.constant).name
-                            if name == "gets" or name == "fgets" or name == "read" or "scanf" in name:
-                                self.check_overflow(instruction)
+                            symbol = self.bv.get_symbol_at(instruction.dest.constant)
+                            if symbol != None:
+                                name = symbol.name
+                                if name == "gets" or name == "fgets" or name == "read" or  name == "__isoc99_scanf":
+                                    self.check_overflow(instruction)
 
     def get_padding_size(self, function: bn.function.Function, input_variable):
         """
@@ -162,17 +206,32 @@ class Machine:
         size = 0
         variable_set = False
         # Wait until stack reaches the variable
-        for variable, stack_variable in zip(function.core_var_stack_layout, function.stack_layout):
+        for core_variable, stack_variable in zip(function.core_var_stack_layout, function.stack_layout):
             if stack_variable.name == input_variable:
                 variable_set = True
             if variable_set:
                 # If there is a canary find subtract the space the canary takes up
                 if self.canary_var != None and stack_variable.name == self.canary_var.name:
-                    size += variable.storage
+                    size += core_variable.storage
                     return size
                 if stack_variable.name == "__saved_rbp":
                     return size
-                size -= variable.storage
+                size -= core_variable.storage
+        return size
+
+    def get_variable_size(self, function: bn.function.Function, variable):
+        """Return the size of a variable on the stack."""
+        size = 0
+        variable_set = False
+        for core_variable, stack_variable in zip(function.core_var_stack_layout, function.stack_layout):
+            if variable_set is True:
+                size += core_variable.storage
+                break
+
+            if stack_variable.name == variable:
+                size -= core_variable.storage
+                variable_set = True
+
         return size
 
     def find_functions(self, functions_list):
@@ -203,13 +262,29 @@ class Machine:
 
     def find_unused_got_functions(self, address):
         """Return functions that's got entry is empty at a certain point."""
+        plt_section = self.bv.get_section_by_name(".plt")
+        #print(self.bv.basic_blocks)
+        entry_function = self.bv.entry_function
+        blocks = self.bv.mlil_basic_blocks
+        instructions = self.bv.mlil_instructions
+        #print(blocks)
+        #print(instructions)
+
+        for instruction in instructions:
+            print(instruction)
+            if type(instruction) == bn.mediumlevelil.MediumLevelILRet:
+                print("\n\n")
+
         for function in self.functions:
             for block in function.medium_level_il:
                 for instruction in block:
                     if instruction.operation == bn.MediumLevelILOperation.MLIL_CALL:
                         if type(instruction.dest) == bn.mediumlevelil.MediumLevelILConstPtr:
-                            #!TODO implement a range check in the got and find
-                            name = self.bv.get_symbol_at(instruction.dest.constant).name
+                            # Check if function being called is in the plt
+                            if instruction.dest.constant >= plt_section.start and instruction.dest.constant <= plt_section.end:
+                                symbol = self.bv.get_symbol_at(instruction.dest.constant)
+                                print(symbol.name)
+
         return None
 
     def find_string_address(self):
@@ -400,6 +475,7 @@ class Machine:
 
         return
 
+
 if __name__ == "__main__":
 
     logging.getLogger("pwnlib").setLevel(logging.CRITICAL)
@@ -419,14 +495,17 @@ if __name__ == "__main__":
     mach = Machine(args.b)
 
     mach.check_mitigations()
-    address = mach.check_vulnerable_printf()
+    addresses = mach.check_vulnerable_printf()
+    #address = addresses[0]
 
     mach.find_string_address()
     mach.rename_analysis()
     mach.find_functions(useful_functions)
     mach.check_vulnerable_input()
+    mach.check_vulnerable_copy()
     mach.find_writable_address()
     mach.find_pop_reg_gadget("rdi")
     mach.find_win_gadget()
     mach.find_mov_reg_gadget("rdx")
     mach.find_write_gadget()
+    #mach.find_unused_got_functions(address)
