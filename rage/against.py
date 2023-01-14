@@ -1,11 +1,11 @@
-import logging
-
 from pwn import *
 
 
 class Against:
     def __init__(self, binary_path, libc):
         self.binary = binary_path
+        self.libc_path = libc
+        self.libc = ELF(libc)
 
     def rop_chain_write_string(self, string):
         chain = b""

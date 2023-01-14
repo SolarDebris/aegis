@@ -86,7 +86,6 @@ class Machine:
 
             elif dest_function.name == "gets":
                 if type(instruction.params[0]) == bn.mediumlevelil.MediumLevelILVar:
-                    print(self.reg_args)
                     buff = instruction.get_reg_value(self.reg_args[0]).value
                     input_size = sys.maxsize
                     self.buffer_overflow = True
@@ -99,14 +98,13 @@ class Machine:
                     input_size = instruction.params[2].constant
                     buff = instruction.get_reg_value(self.reg_args[1]).value
 
-
             if type(buff) == int:
                 var = "var_" + hex(buff * -1).split("0x")[1]
-            print(var)
             self.padding_size = self.get_padding_size(function, var)
             if self.padding_size < input_size:
                 print(f"Found buffer overflow with a padding of {self.padding_size}")
                 self.buffer_overflow = True
+            # Add variable overflow check to this part
 
         # !TODO Get buffer size for vulnerable memcpy/strcpy
         elif "cpy" in dest_function.name:
@@ -142,59 +140,56 @@ class Machine:
                 buffer_size = source_size
 
             padding_size = self.get_padding_size(function, dest_var_name)
-            #padding_size = self.get_padding_size(function, source_var_name)
-            print(dest_size, buffer_size, padding_size)
 
             if padding_size < buffer_size:
                 print(f"Found a copy buffer overflow with {padding_size}")
+            elif buffer_size > dest_size:
+                print(f"Found a copy variable overflow with {buffer_size}")
 
-    def check_win_function(self, function: bn.function.Function):
+    def check_win_function(self):
         """Check if the current function qualifies as a win function."""
+        #for function in self.bv.functions:
+            #for instruction in function.mlil_instructions:
+
         return None
 
     def check_vulnerable_printf(self):
         """Find a printf that is vulnerable to format string exploits."""
         addresses = []
-        for function in self.functions:
-            for block in function.medium_level_il:
-                for instruction in block:
-                    if instruction.operation == bn.MediumLevelILOperation.MLIL_CALL:
-                        if type(instruction.dest) == bn.mediumlevelil.MediumLevelILConstPtr:
-                            if len(instruction.params) > 0 and type(instruction.params[0]) == bn.mediumlevelil.MediumLevelILVar:
-                                #!TODO Check to see if variable can store user data
-                                name = self.bv.get_symbol_at(instruction.dest.constant).name
-                                if "printf" in name:
-                                    print(f"Found vulnerable printf {hex(instruction.address)}")
-                                    self.format_vuln = True
-                                    addresses.append(instruction.address)
+
+        for instruction in self.bv.mlil_instructions:
+            if instruction.operation == bn.MediumLevelILOperation.MLIL_CALL:
+                if type(instruction.dest) == bn.mediumlevelil.MediumLevelILConstPtr:
+                    if len(instruction.params) > 0 and type(instruction.params[0]) == bn.mediumlevelil.MediumLevelILVar:
+                        symbol = self.bv.get_symbol_at(instruction.dest.constant)
+                        if symbol is not None and "printf" in symbol.name:
+                            print(f"Found vulnerable printf {hex(instruction.address)}")
+                            self.format_vuln = True
+                            addresses.append(instruction.address)
         return addresses
 
     def check_vulnerable_copy(self):
         """Find vulnerable copy instructions."""
-        for function in self.functions:
-            for block in function.medium_level_il:
-                for instruction in block:
-                    if instruction.operation == bn.MediumLevelILOperation.MLIL_CALL:
-                        if type(instruction.dest) == bn.mediumlevelil.MediumLevelILConstPtr:
-                            symbol = self.bv.get_symbol_at(instruction.dest.constant)
-                            if symbol is not None:
-                                name = symbol.name
-                                if name == "memcpy" or name == "strcpy" or name == "strncpy":
-                                    self.check_overflow(instruction)
+        for instruction in self.bv.mlil_instructions:
+            if instruction.operation == bn.MediumLevelILOperation.MLIL_CALL:
+                if type(instruction.dest) == bn.mediumlevelil.MediumLevelILConstPtr:
+                    symbol = self.bv.get_symbol_at(instruction.dest.constant)
+                    if symbol is not None:
+                        name = symbol.name
+                        if name == "memcpy" or name == "strcpy" or name == "strncpy":
+                            self.check_overflow(instruction)
 
     def check_vulnerable_input(self):
         """Check for stack overflow in user input functions."""
         # variable for how much stdin has inputted so far
-        for function in self.functions:
-            for block in function.medium_level_il:
-                for instruction in block:
-                    if instruction.operation == bn.MediumLevelILOperation.MLIL_CALL:
-                        if type(instruction.dest) == bn.mediumlevelil.MediumLevelILConstPtr:
-                            symbol = self.bv.get_symbol_at(instruction.dest.constant)
-                            if symbol != None:
-                                name = symbol.name
-                                if name == "gets" or name == "fgets" or name == "read" or  name == "__isoc99_scanf":
-                                    self.check_overflow(instruction)
+        for instruction in self.bv.mlil_instructions:
+            if instruction.operation == bn.MediumLevelILOperation.MLIL_CALL:
+                if type(instruction.dest) == bn.mediumlevelil.MediumLevelILConstPtr:
+                    symbol = self.bv.get_symbol_at(instruction.dest.constant)
+                    if symbol is not None:
+                        name = symbol.name
+                        if name == "gets" or name == "fgets" or name == "read" or  name == "__isoc99_scanf":
+                            self.check_overflow(instruction)
 
     def get_padding_size(self, function: bn.function.Function, input_variable):
         """
@@ -211,7 +206,7 @@ class Machine:
                 variable_set = True
             if variable_set:
                 # If there is a canary find subtract the space the canary takes up
-                if self.canary_var != None and stack_variable.name == self.canary_var.name:
+                if self.canary_var is not None and stack_variable.name == self.canary_var.name:
                     size += core_variable.storage
                     return size
                 if stack_variable.name == "__saved_rbp":
@@ -251,7 +246,7 @@ class Machine:
         Finds a writable address of memory in the binary without interfering
         with variables.
         """
-        #!TODO Add a section to find an empty set of characters
+        # !TODO Add a section to find an empty set of characters
         for section in self.sections.keys():
             section = self.sections.get(section)
             if section.name == ".data" or section.name == ".bss":
@@ -263,27 +258,15 @@ class Machine:
     def find_unused_got_functions(self, address):
         """Return functions that's got entry is empty at a certain point."""
         plt_section = self.bv.get_section_by_name(".plt")
-        #print(self.bv.basic_blocks)
-        entry_function = self.bv.entry_function
-        blocks = self.bv.mlil_basic_blocks
-        instructions = self.bv.mlil_instructions
-        #print(blocks)
-        #print(instructions)
-
-        for instruction in instructions:
-            print(instruction)
-            if type(instruction) == bn.mediumlevelil.MediumLevelILRet:
-                print("\n\n")
-
-        for function in self.functions:
-            for block in function.medium_level_il:
-                for instruction in block:
-                    if instruction.operation == bn.MediumLevelILOperation.MLIL_CALL:
-                        if type(instruction.dest) == bn.mediumlevelil.MediumLevelILConstPtr:
-                            # Check if function being called is in the plt
-                            if instruction.dest.constant >= plt_section.start and instruction.dest.constant <= plt_section.end:
-                                symbol = self.bv.get_symbol_at(instruction.dest.constant)
-                                print(symbol.name)
+        # !TODO Get a linear method for going through the instructions of the program
+        got_filled = []
+        for instruction in self.bv.mlil_instructions:
+            if instruction.operation == bn.MediumLevelILOperation.MLIL_CALL:
+                if type(instruction.dest) == bn.mediumlevelil.MediumLevelILConstPtr:
+                    # Check if function being called is in the plt
+                    if instruction.dest.constant >= plt_section.start and instruction.dest.constant <= plt_section.end:
+                        symbol = self.bv.get_symbol_at(instruction.dest.constant)
+                        got_filled.append(symbol.name)
 
         return None
 
@@ -456,13 +439,12 @@ class Machine:
         """Rename variables and functions in order to make analysis easier."""
         self.canary_var = None
         if self.canary:
-            for function in self.functions:
-                for block in function.medium_level_il:
-                    for instruction in block:
-                        if instruction.operation == bn.MediumLevelILOperation.MLIL_CALL:
-                            if type(instruction.dest) == bn.mediumlevelil.MediumLevelILConstPtr:
-                                name = self.bv.get_symbol_at(instruction.dest.constant).name
-                                if name == "__stack_chk_fail":
+            for instruction in self.bv.mlil_instructions:
+                if instruction.operation == bn.MediumLevelILOperation.MLIL_CALL:
+                    if type(instruction.dest) == bn.mediumlevelil.MediumLevelILConstPtr:
+                        symbol = self.bv.get_symbol_at(instruction.dest.constant)
+                        if symbol is not None and symbol.name == "__stack_chk_fail":
+                                    function = self.bv.get_function_at(instruction.address)
                                     variables = function.stack_layout
                                     canary_variable = variables[-3]
                                     self.canary_var = canary_variable
@@ -498,6 +480,7 @@ if __name__ == "__main__":
     addresses = mach.check_vulnerable_printf()
     #address = addresses[0]
 
+
     mach.find_string_address()
     mach.rename_analysis()
     mach.find_functions(useful_functions)
@@ -508,4 +491,5 @@ if __name__ == "__main__":
     mach.find_win_gadget()
     mach.find_mov_reg_gadget("rdx")
     mach.find_write_gadget()
+    mach.check_win_function()
     #mach.find_unused_got_functions(address)
