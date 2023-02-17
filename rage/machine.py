@@ -1,10 +1,11 @@
 import sys
 import subprocess
 import argparse
-import logging
 import pwn
+import logging
 
 import binaryninja as bn
+from log import aegis_log
 
 
 class Machine:
@@ -102,11 +103,10 @@ class Machine:
                 var = "var_" + hex(buff * -1).split("0x")[1]
             self.padding_size = self.get_padding_size(function, var)
             if self.padding_size < input_size:
-                print(f"Found buffer overflow with a padding of {self.padding_size}")
+                aegis_log.info(f"Found buffer overflow with a padding of {self.padding_size}")
                 self.buffer_overflow = True
             # Add variable overflow check to this part
 
-        # !TODO Get buffer size for vulnerable memcpy/strcpy
         elif "cpy" in dest_function.name:
             dest_var_name = None
             source_var_name = None
@@ -142,9 +142,10 @@ class Machine:
             padding_size = self.get_padding_size(function, dest_var_name)
 
             if padding_size < buffer_size:
-                print(f"Found a copy buffer overflow with {padding_size}")
+                #print(f"Found a copy buffer overflow with {padding_size}")
+                aegis_log.info(f"Found a copy buffer overflow with {padding_size}")
             elif buffer_size > dest_size:
-                print(f"Found a copy variable overflow with {buffer_size}")
+                aegis_log.info(f"Found a copy variable overflow with {buffer_size}")
 
     def check_win_function(self):
         """Check if the current function qualifies as a win function."""
@@ -163,7 +164,7 @@ class Machine:
                     if len(instruction.params) > 0 and type(instruction.params[0]) == bn.mediumlevelil.MediumLevelILVar:
                         symbol = self.bv.get_symbol_at(instruction.dest.constant)
                         if symbol is not None and "printf" in symbol.name:
-                            print(f"Found vulnerable printf {hex(instruction.address)}")
+                            aegis_log.info(f"Found vulnerable printf {hex(instruction.address)}")
                             self.format_vuln = True
                             addresses.append(instruction.address)
         return addresses
@@ -229,6 +230,11 @@ class Machine:
 
         return size
 
+    def get_got_functoins(self):
+        """Return all got functions"""
+        # TODO
+        return None
+
     def find_functions(self, functions_list):
         """Return a list of functions in the binary using the given list."""
         funcs = []
@@ -251,14 +257,14 @@ class Machine:
             section = self.sections.get(section)
             if section.name == ".data" or section.name == ".bss":
                 if self.bv.is_offset_writable(section.start):
-                    print(f"Found a writable address at {hex(section.start)}")
+                    aegis_log.info(f"Found a writable address at {hex(section.start)}")
                     return section.start
         return None
 
     def find_unused_got_functions(self, address):
         """Return functions that's got entry is empty at a certain point."""
         plt_section = self.bv.get_section_by_name(".plt")
-        # !TODO Get a linear method for going through the instructions of the program
+        # TODO Get a linear method for going through the instructions of the program
         got_filled = []
         for instruction in self.bv.mlil_instructions:
             if instruction.operation == bn.MediumLevelILOperation.MLIL_CALL:
@@ -279,7 +285,7 @@ class Machine:
                 if target_string in string.value:
                     index = string.value.index(target_string)
                     address = string.start + index
-                    print(f"Found string \"{string.value[index:].strip()}\" at {hex(address)}")
+                    aegis_log.info(f"Found string \"{string.value[index:].strip()}\" at {hex(address)}")
                     return address
         return None
 
@@ -298,7 +304,7 @@ class Machine:
                     string = self.bv.get_ascii_string_at(string_addr)
 
                     if string.value in important_strings:
-                        print(f"Found ret2win gadget at {hex(address)}")
+                        aegis_log.info(f"Found ret2win gadget at {hex(address)}")
                         return address
         return None
 
@@ -327,7 +333,7 @@ class Machine:
                 min_instructions = instructions
                 min_gadget = gadget
 
-        print(f"Found gadget for {register}: {min_gadget}")
+        aegis_log.info(f"Found gadget for {register}: {min_gadget}")
         return min_gadget
 
     def find_mov_reg_gadget(self, register):
@@ -367,7 +373,7 @@ class Machine:
         # If there are no optimal gadgets choose from valid ones
         if len(optimal_gadgets) <= 0:
             if len(valid_gadgets) <= 0:
-                print("Couldn't find mov gadget")
+                aegis_log.WARNING("Couldn't find mov gadget")
                 return None
             optimal_gadgets = valid_gadgets
 
@@ -380,7 +386,7 @@ class Machine:
                min_instructions = instructions
                min_gadget = gadget
 
-        print(f"Found mov gadget for register {register}: {min_gadget}")
+        aegis_log.info(f"Found mov gadget for register {register}: {min_gadget}")
 
         reg1 = min_gadget.split(b"[")[1].split(b",")[0].split(b"]")[0].strip()
         reg2 = min_gadget.split(b"[")[1].split(b",")[1].split(b"]")[0].split(b";")[0].strip()
@@ -429,7 +435,7 @@ class Machine:
                min_instructions = instructions
                min_gadget = gadget
 
-        print(f"Found write primitive gadget: {min_gadget}")
+        aegis_log.info(f"Found write primitive gadget: {min_gadget}")
 
         reg1 = min_gadget.split(b"[")[1].split(b",")[0].split(b"]")[0].strip()
         reg2 = min_gadget.split(b"[")[1].split(b",")[1].split(b"]")[0].split(b";")[0].strip()

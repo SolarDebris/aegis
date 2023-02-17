@@ -9,11 +9,8 @@ class aegis:
         self.binary = binary
 
 
-
-
-if __name__ == "__main__":
-
-    print("""
+def print_title():
+     print("""
    |\                     /)
  /\_\\__               (_//
 |   `>\-`     _._       //`)
@@ -40,6 +37,11 @@ if __name__ == "__main__":
   ███    █▀    ██████████   ████████▀  █▀    ▄████████▀
 
     """)
+
+
+
+
+if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(
         prog = "Aegis",

@@ -56,12 +56,9 @@ class FormatVulnerability(angr.Analysis):
     def __init__(self, binary):
         self.binary = binary
 
-
-
 class Printf(SimProcedure):
     def run(self):
         return None
-
 
 
 angr.AnalysesHub.register_default("BufferOverflow", BufferOverflow)
