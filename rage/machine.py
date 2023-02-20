@@ -142,16 +142,13 @@ class Machine:
             padding_size = self.get_padding_size(function, dest_var_name)
 
             if padding_size < buffer_size:
-                #print(f"Found a copy buffer overflow with {padding_size}")
                 aegis_log.info(f"Found a copy buffer overflow with {padding_size}")
             elif buffer_size > dest_size:
                 aegis_log.info(f"Found a copy variable overflow with {buffer_size}")
 
     def check_win_function(self):
         """Check if the current function qualifies as a win function."""
-        #for function in self.bv.functions:
-            #for instruction in function.mlil_instructions:
-
+        # !TODO Create a function that checks for a win function in the binary.
         return None
 
     def check_vulnerable_printf(self):
@@ -230,8 +227,8 @@ class Machine:
 
         return size
 
-    def get_got_functoins(self):
-        """Return all got functions"""
+    def get_got_functions(self):
+        """Return all got functions."""
         # TODO
         return None
 
@@ -278,7 +275,7 @@ class Machine:
 
     def find_string_address(self):
         """Return the address of a string used to get flag."""
-        important_strings = ["/bin/sh", "/bin/cat flag.txt", "cat flag.txt", "flag.txt"]
+        important_strings = ["/bin/sh", "/bin/cat flag.txt", "cat flag.txt", "flag.txt", "sh", "/bin/bash"]
 
         for string in self.bv.strings:
             for target_string in important_strings:
@@ -484,8 +481,7 @@ if __name__ == "__main__":
 
     mach.check_mitigations()
     addresses = mach.check_vulnerable_printf()
-    #address = addresses[0]
-
+    # address = addresses[0]
 
     mach.find_string_address()
     mach.rename_analysis()
@@ -498,4 +494,4 @@ if __name__ == "__main__":
     mach.find_mov_reg_gadget("rdx")
     mach.find_write_gadget()
     mach.check_win_function()
-    #mach.find_unused_got_functions(address)
+    # mach.find_unused_got_functions(address)

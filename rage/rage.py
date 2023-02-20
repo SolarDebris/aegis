@@ -1,48 +1,71 @@
-import angr, claripy
+import angr
+import claripy
+import argparse
 import logging
+
+from log import aegis_log
 
 logging.getLogger("angr").setLevel(logging.CRITICAL)
 logging.getLogger("os").setLevel(logging.CRITICAL)
 logging.getLogger("pwnlib").setLevel(logging.CRITICAL)
 
-class BufferOverflow(angr.Analysis):
+
+class rAEG:
+    """Class that utilizes all angr analysis."""
+
     def __init__(self, binary):
         self.binary = binary
-        self.proj = angr.Project(self.binary, load_options={"auto_load_libs":False})
-        self.cfg = self.proj.analyses.CFGFast()
+        self.project = angr.Project(self.binary, load_options={"auto_load_libs":"false"})
+
+    def stack_smash(self):
+        """Analyze the buffer overflow."""
+        aegis_log.info("Starting symbolic analysis for buffer overflow")
+        stack_smash = self.project.analyses.BufferOverflow(self.binary)
+        self.symbolic_padding = stack_smash.symbolic_padding
+        aegis_log.info(f"Found symbolic padding with length of {len(self.symbolic_padding)}")
+        aegis_log.info(f"Symbolic Padding: {self.symbolic_padding}")
+
+
+class BufferOverflow(angr.Analysis):
+    """Angr analysis for symbolically detecting a buffer overflow."""
+
+    def __init__(self, binary):
+        self.binary = binary
         self.stack_smash()
 
-
     def check_memory_corruption(self, simgr):
+        """Return the simulation manager that checks for buffer overflow."""
         if simgr.unconstrained:
             for path in simgr.unconstrained:
                 path.add_constraints(path.regs.pc == b"AAAAAAAA")
-                path.add_constraints(path.regs.bc == b"BBBBBBBB")
+                path.add_constraints(path.regs.bp == b"BBBBBBBB")
 
                 if path.satisfiable():
                     stack_smash = path.solver.eval(self.symbolic_input, cast_to=bytes)
                     try:
                         index = stack_smash.index(b"AAAAAAAA")
-                        self.symbolic_padding = self.symbolic_input[:index]
+                        self.symbolic_padding = stack_smash[:index]
                         simgr.stashes["mem_corrupt"].append(path)
                     except ValueError:
-                        print("Could not find the index of the pc overwrite")
+                        aegis_log.warn("Could not find the index of the pc overwrite")
+                        self.symbolic_padding = None
                 simgr.stashes["unconstrained"].remove(path)
-                #simgr.drop(stash="active")
+                simgr.drop(stash="active")
         return simgr
 
     def stack_smash(self):
-        """Use angr to check for an unconstrained state"""
+        """Return the symbolic buffer for smashing the stack."""
         buff_size = 600
         self.symbolic_input = claripy.BVS("input", 8 * buff_size)
         self.symbolic_padding = None
 
-        state = self.proj.factory.entry_state(
+        state = self.project.factory.entry_state(
+            start_addr = self.project.loader.find_symbol("main"),
             stdin = self.symbolic_input,
             add_options = angr.options.unicorn
         )
 
-        simgr = self.proj.factory.simgr(state)
+        simgr = self.project.factory.simgr(state)
         simgr.stashes["mem_corrupt"] = []
 
         simgr.explore(step_func=self.check_memory_corruption)
@@ -52,14 +75,36 @@ class BufferOverflow(angr.Analysis):
 
         return self.symbolic_padding
 
+
 class FormatVulnerability(angr.Analysis):
+    """Class that uses angr to analyze for format string vulnerabilities."""
+
     def __init__(self, binary):
         self.binary = binary
 
-class Printf(SimProcedure):
+
+class Printf(angr.SimProcedure):
+    """Class that is an angr simprocedure for printf."""
+
     def run(self):
         return None
 
 
 angr.AnalysesHub.register_default("BufferOverflow", BufferOverflow)
-angr.AnalysesHub.register_defautl("FormatVulnerability", FormatVulnerability)
+angr.AnalysesHub.register_default("FormatVulnerability", FormatVulnerability)
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        prog="rage",
+        description="Symbolic analyzer for the aegis toolkit using angr"
+    )
+
+    parser.add_argument("-b", metavar="binary", type=str, help="The binary you are executing", default=None)
+    parser.add_argument("-l", metavar="libc", type=str, help="The libc shared library object linked to the binary", default=None)
+
+    args = parser.parse_args()
+
+    anal = rAEG(args.b)
+
+    anal.stack_smash()

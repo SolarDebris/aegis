@@ -1,12 +1,46 @@
 #!/bin/env python3
 
+import pwn
 import logging
 import argparse
+import rage.rage
+
+from rage.log import aegis_log
+from rage.rage import rAEG
 
 
-class aegis:
+class Aegis:
+    """Class that does the control flow for analysis and execution."""
+
     def __init__(self, binary, libc):
+        """Initialize important variables for the binary."""
         self.binary = binary
+        self.elf = pwn.ELF(binary)
+        if libc is not None:
+            self.libc = pwn.ELF(libc)
+        else:
+            self.libc = self.elf.libc
+
+        self.has_leak = False
+        self.has_overflow = False
+        self.has_libc_leak = False
+        self.has_canary = False
+        self.has
+
+    def static_analysis(self):
+        """Set variables from the output of the static analysis."""
+        return None
+
+    def symbolic_analysis(self):
+        """Set variables from the output of the symbolic analysis."""
+        symbol = rAEG(self.binary)
+        symbol.stack_smash()
+
+        return None
+
+    def determine_exploit(self):
+        """Choose which exploit to do for the binary."""
+        return None
 
 
 def print_title():
@@ -39,8 +73,6 @@ def print_title():
     """)
 
 
-
-
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(
@@ -58,3 +90,6 @@ if __name__ == "__main__":
     parser.add_argument("-ctfd", metavar="website", type=str, help="The ctfd webpage", default=None)
 
     arguments = parser.parse_args()
+    print_title()
+    print(arguments.binary)
+    print(arguments.ip)
