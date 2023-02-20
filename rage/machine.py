@@ -5,7 +5,7 @@ import pwn
 import logging
 
 import binaryninja as bn
-from log import aegis_log
+from rage.log import aegis_log
 
 
 class Machine:
@@ -30,6 +30,8 @@ class Machine:
         self.nx = False
         self.pie = False
         self.relro = False
+
+        self.canary_var = None
 
         self.buffer_overflow = False
         self.format_vuln = False

@@ -3,11 +3,7 @@ import claripy
 import argparse
 import logging
 
-from log import aegis_log
-
-logging.getLogger("angr").setLevel(logging.CRITICAL)
-logging.getLogger("os").setLevel(logging.CRITICAL)
-logging.getLogger("pwnlib").setLevel(logging.CRITICAL)
+from rage.log import aegis_log
 
 
 class rAEG:

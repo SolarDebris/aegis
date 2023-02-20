@@ -3,8 +3,9 @@
 import pwn
 import logging
 import argparse
+import sys
 
-# from rage.log import aegis_log
+from rage.log import aegis_log
 from rage.rage import rAEG
 from rage.machine import Machine
 from rage.against import Against
@@ -44,6 +45,8 @@ class Aegis:
         """Set variables from the output of the symbolic analysis."""
         self.symbol.stack_smash()
         self.symbolic_padding = self.symbol.symbolic_padding
+
+        print(self.symbolic_padding)
         return None
 
     def determine_exploit(self):
@@ -94,6 +97,7 @@ if __name__ == "__main__":
     logging.getLogger("os").setLevel(logging.CRITICAL)
     logging.getLogger("pwnlib").setLevel(logging.CRITICAL)
     logging.getLogger("aegis_log").setLevel(logging.INFO)
+    aegis_log.info("Test")
 
     parser = argparse.ArgumentParser(
         prog = "Aegis",
@@ -113,5 +117,3 @@ if __name__ == "__main__":
     print_title()
 
     aeg = Aegis(arguments.bin, arguments.libc)
-    aeg.static_analysis()
-    aeg.symbolic_analysis()
