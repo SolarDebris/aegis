@@ -18,8 +18,9 @@ class rAEG:
         aegis_log.info("Starting symbolic analysis for buffer overflow")
         stack_smash = self.project.analyses.BufferOverflow(self.binary)
         self.symbolic_padding = stack_smash.symbolic_padding
-        aegis_log.info(f"Found symbolic padding with length of {len(self.symbolic_padding)}")
-        aegis_log.info(f"Symbolic Padding: {self.symbolic_padding}")
+        if self.symbolic_padding is not None:
+            aegis_log.info(f"Found symbolic padding with length of {len(self.symbolic_padding)}")
+            aegis_log.info(f"Symbolic Padding: {self.symbolic_padding}")
 
 
 class BufferOverflow(angr.Analysis):
@@ -66,8 +67,11 @@ class BufferOverflow(angr.Analysis):
 
         simgr.explore(step_func=self.check_memory_corruption)
 
-        for error in simgr.errored:
-            print(error)
+        for e in simgr.errored:
+            if e.error == angr.errors.SimProcedureError("Symbolic (format) string game over :("):
+                aegis_log.warn(f"Found symbolic format string with error {e}")
+            aegis_log.warn(f"angr simulation failed with error {e.error}")
+
 
         return self.symbolic_padding
 

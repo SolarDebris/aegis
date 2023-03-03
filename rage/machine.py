@@ -33,8 +33,7 @@ class Machine:
 
         self.canary_var = None
 
-        self.buffer_overflow = False
-        self.format_vuln = False
+        self.printf_address = None
 
     def is_user_controlled(self, variable: bn.variable.Variable):
         """
@@ -345,7 +344,7 @@ class Machine:
         output.pop(-1)
 
         if len(output) <= 0:
-            return None
+            return None, None
 
         # Iterate through the gadgets to find the gadget with the least instructions
         # this will make sure that the instruction we want will be first in the gadget
@@ -373,23 +372,107 @@ class Machine:
         if len(optimal_gadgets) <= 0:
             if len(valid_gadgets) <= 0:
                 aegis_log.WARNING("Couldn't find mov gadget")
-                return None
+                return None, None
             optimal_gadgets = valid_gadgets
 
         # Find the gadget with the lowest amount of instructions
         min_gadget = optimal_gadgets[0]
         min_instructions = optimal_gadgets[0].count(b";") + 1
         for gadget in optimal_gadgets:
-           instructions = gadget.count(b";") + 1
-           if instructions < min_instructions:
-               min_instructions = instructions
-               min_gadget = gadget
+            instructions = gadget.count(b";") + 1
+            if instructions < min_instructions:
+                min_instructions = instructions
+                min_gadget = gadget
 
         aegis_log.info(f"Found mov gadget for register {register}: {min_gadget}")
 
         reg1 = min_gadget.split(b"[")[1].split(b",")[0].split(b"]")[0].strip()
         reg2 = min_gadget.split(b"[")[1].split(b",")[1].split(b"]")[0].split(b";")[0].strip()
         return min_gadget, reg2
+
+    def find_xor_reg_gadget(self, register):
+        """Return a gadget that does xor {register}, register."""
+        output = subprocess.check_output(["ROPgadget", "--binary", self.binary, "--re", f"xor {register}" ]).split(b"\n")
+        output.pop(0)
+        output.pop(0)
+        output.pop(-1)
+        output.pop(-1)
+        output.pop(-1)
+
+        if len(output) <= 0:
+            return None, None
+
+        # Iterate through the gadgets to find the gadget with the least instructions
+        # this will make sure that the instruction we want will be first in the gadget
+        min_gadget = output[0]
+        min_instructions = output[0].count(b";")
+
+        valid_gadgets = []
+        optimal_gadgets = []
+        for gadget in output:
+            instructions = gadget.split(b";")
+            for instruction in instructions:
+                if b"xor" in instruction:
+                    reg1 = instruction.split(b",")[0].split(b" ")[1].strip()
+                    reg2 = instruction.split(b",")[1].strip()
+
+                    print(reg1)
+                    print(reg2 + "\n\n")
+                    if reg1[1:] != reg2[1:]:
+                        valid_gadgets.append(gadget)
+                        if chr(reg1[0]) == "r":
+                            if chr(reg2[0]) == "r":
+                                optimal_gadgets.append(gadget)
+
+        # If there are no optimal gadgets choose from valid ones
+        if len(optimal_gadgets) <= 0:
+            if len(valid_gadgets) <= 0:
+                aegis_log.WARNING("Couldn't find xor gadget")
+                return None, None
+            optimal_gadgets = valid_gadgets
+
+        # Find the gadget with the lowest amount of instructions
+        min_gadget = optimal_gadgets[0]
+        min_instructions = optimal_gadgets[0].count(b";") + 1
+        for gadget in optimal_gadgets:
+            instructions = gadget.count(b";") + 1
+            if instructions < min_instructions:
+                min_instructions = instructions
+                min_gadget = gadget
+
+        aegis_log.info(f"Found mov gadget for register {register}: {min_gadget}")
+
+        reg1 = min_gadget.split(b"[")[1].split(b",")[0].split(b"]")[0].strip()
+        reg2 = min_gadget.split(b"[")[1].split(b",")[1].split(b"]")[0].split(b";")[0].strip()
+        return min_gadget, reg2
+
+    def find_reg_gadget(self, register):
+        """Return a chain that sets the registers."""
+        pop = self.find_pop_reg_gadget(register)
+        chain = []
+
+        if pop != None:
+            return [pop]
+        else:
+            mov, reg2 = self.find_mov_reg_gadget(register)
+            xor, reg3 = self.find_xor_reg_gadget(register)
+
+            if mov != None:
+                pop = self.find_pop_reg_gadget(reg2)
+                if pop != None:
+                    chain.insert(0, mov)
+                    chain.insert(0, pop)
+                    return chain
+            elif xor != None:
+                pop = self.find_pop_reg_gadget(reg3)
+                if pop != None:
+                    chain.insert(0, xor)
+                    chain.insert(0, pop)
+                    return chain
+
+        aegis_log.warning(f"Could not find gadget for {register} register")
+        return None
+
 
     def find_write_gadget(self):
         """Return a write primitive rop gadget."""
@@ -418,7 +501,6 @@ class Machine:
                             if chr(reg2[0]) == "r":
                                 optimal_gadgets.append(gadget)
 
-
         # If there are no optimal gadgets choose from valid ones
         if len(optimal_gadgets) <= 0:
             if len(valid_gadgets) <= 0:
@@ -429,10 +511,10 @@ class Machine:
         min_gadget = optimal_gadgets[0]
         min_instructions = optimal_gadgets[0].count(b";") + 1
         for gadget in optimal_gadgets:
-           instructions = gadget.count(b";") + 1
-           if instructions < min_instructions:
-               min_instructions = instructions
-               min_gadget = gadget
+            instructions = gadget.count(b";") + 1
+            if instructions < min_instructions:
+                min_instructions = instructions
+                min_gadget = gadget
 
         aegis_log.info(f"Found write primitive gadget: {min_gadget}")
 
@@ -449,16 +531,16 @@ class Machine:
                     if type(instruction.dest) == bn.mediumlevelil.MediumLevelILConstPtr:
                         symbol = self.bv.get_symbol_at(instruction.dest.constant)
                         if symbol is not None and symbol.name == "__stack_chk_fail":
-                                    function = self.bv.get_function_at(instruction.address)
-                                    variables = function.stack_layout
-                                    canary_variable = variables[-3]
-                                    self.canary_var = canary_variable
-                                    print(canary_variable.name)
-                                    # !FIXME This doesn't work in commercial on
-                                    # linux for some reason
-                                    canary_variable.set_name_async("canary")
-                                    print(canary_variable.name)
-                                    print(function.stack_layout)
+                            function = self.bv.get_function_at(instruction.address)
+                            variables = function.stack_layout
+                            canary_variable = variables[-3]
+                            self.canary_var = canary_variable
+                            print(canary_variable.name)
+                            # !FIXME This doesn't work in commercial on
+                            # linux for some reason
+                            canary_variable.set_name_async("canary")
+                            print(canary_variable.name)
+                            print(function.stack_layout)
 
         return
 

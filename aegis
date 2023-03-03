@@ -13,7 +13,7 @@ from rage.against import Against
 class Aegis:
     """Class that does the control flow for analysis and execution."""
 
-    def __init__(self, binary, libc):
+    def __init__(self, binary, libc, ip, port):
         """Initialize important variables for the binary."""
         self.binary = binary
         self.elf = pwn.ELF(binary)
@@ -21,6 +21,9 @@ class Aegis:
             self.libc = pwn.ELF(libc)
         else:
             self.libc = self.elf.libc
+
+        self.ip = ip
+        self.port = port
 
         self.has_leak = False
         self.has_overflow = False
@@ -36,7 +39,7 @@ class Aegis:
         self.machine.check_mitigations()
         self.machine.check_vulnerable_copy()
         self.machine.check_vulnerable_input()
-        self.machine.check_vulnerable_printf()
+        printf_addresses = self.machine.check_vulnerable_printf()
         self.machine.find_win_gadget()
         self.machine.find_string_address()
 
@@ -53,6 +56,8 @@ class Aegis:
     def exploit(self):
         """Create and run exploit using Against module."""
         self.against = Against(self.binary, self.libc, self.machine)
+
+        self.against.rop_ret2puts()
 
         return None
 
@@ -112,6 +117,6 @@ if __name__ == "__main__":
     arguments = parser.parse_args()
     print_title()
 
-    aeg = Aegis(arguments.bin, arguments.libc)
+    aeg = Aegis(arguments.bin, arguments.libc, arguments.ip, arguments.port)
     aeg.static_analysis()
     aeg.symbolic_analysis()

@@ -2,22 +2,23 @@ import pwn
 import logging
 import r2pipe
 
-
 from binascii import *
 from rage.machine import Machine
 from rage.log import aegis_log
 
 
-
 class Against:
     """Class for dealing with exploiting the binary."""
 
-    def __init__(self, binary_path, libc, machine: Machine):
+    def __init__(self, binary_path, libc, machine: Machine, ip, port):
         """Create the against class."""
         self.binary = binary_path
         self.libc_path = libc
         self.libc = pwn.ELF(libc)
         self.machine = machine
+
+        self.ip = ip
+        self.port = port
 
         self.flag = None
         self.flag_format = "flag"
@@ -35,7 +36,7 @@ class Against:
         """
 
         if option == "REMOTE":
-            return pwn.remote()
+            return pwn.remote(self.ip, self.port)
         elif option == "GDB":
             return pwn.gdb.debug(self.binary, gdbscript=gs)
         else:
@@ -46,9 +47,6 @@ class Against:
         chain = b""
 
         write_gadget = self.machine.find_write_gadget()
-
-        if len(string) <= 8:
-            print("lmai")
 
         return chain
 
@@ -61,6 +59,10 @@ class Against:
     def rop_ret2puts(self):
         """Return a rop chain that prints out a got address for a function."""
         chain = b""
+
+        leak_functions = self.machine.find_functions(["puts", "printf"])
+        print(leak_functions)
+
         return chain
 
     def rop_chain_libc(self, libc_base):
