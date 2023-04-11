@@ -473,7 +473,6 @@ class Machine:
         aegis_log.warning(f"Could not find gadget for {register} register")
         return None
 
-
     def find_write_gadget(self):
         """Return a write primitive rop gadget."""
         output = subprocess.check_output(["ROPgadget", "--binary", self.binary, "--re", "mov .word ptr \[.*\], *.", "--filter", "jmp"]).split(b"\n")

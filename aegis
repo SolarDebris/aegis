@@ -53,11 +53,16 @@ class Aegis:
         """Choose which exploit to do for the binary."""
         return None
 
+    def write_solve_script(self):
+        """Write the solve to a script for writeup purposes."""
+        return None
+
     def exploit(self):
         """Create and run exploit using Against module."""
-        self.against = Against(self.binary, self.libc, self.machine)
-
+        function = "win"
+        self.against = Against(self.binary, self.libc, self.machine, self.ip, self.port)
         self.against.rop_ret2puts()
+        self.against.rop_chain_call_function(function, [])
 
         return None
 
@@ -120,3 +125,4 @@ if __name__ == "__main__":
     aeg = Aegis(arguments.bin, arguments.libc, arguments.ip, arguments.port)
     aeg.static_analysis()
     aeg.symbolic_analysis()
+    aeg.exploit()
