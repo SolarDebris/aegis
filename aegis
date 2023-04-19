@@ -51,6 +51,12 @@ class Aegis:
 
     def determine_exploit(self):
         """Choose which exploit to do for the binary."""
+
+        # Check if return to win
+
+        # Check if rop function call
+
+
         return None
 
     def write_solve_script(self):

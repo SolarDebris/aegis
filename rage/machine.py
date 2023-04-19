@@ -35,6 +35,9 @@ class Machine:
 
         self.printf_address = None
 
+        # How we know the input ends
+        self.input_delimiter = b""
+
     def is_user_controlled(self, variable: bn.variable.Variable):
         """
         Return true or false if the variable is user controlled.
@@ -233,6 +236,14 @@ class Machine:
         # TODO
         return None
 
+    def get_input_delimiter(self):
+        """Set the input delimiter."""
+        return None
+
+    def create_menu(self):
+        """Create an automatic menu script."""
+        return None
+
     def find_functions(self, functions_list):
         """Return a list of functions in the binary using the given list."""
         funcs = []
@@ -276,7 +287,7 @@ class Machine:
 
     def find_string_address(self):
         """Return the address of a string used to get flag."""
-        important_strings = ["/bin/sh", "/bin/cat flag.txt", "cat flag.txt", "flag.txt", "sh", "/bin/bash"]
+        important_strings = ["/bin/sh", "/bin/cat flag.txt", "cat flag.txt", "flag.txt", "/bin/bash", "sh"]
 
         for string in self.bv.strings:
             for target_string in important_strings:
