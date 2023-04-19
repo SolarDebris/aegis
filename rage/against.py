@@ -1,10 +1,12 @@
 import pwn
 import logging
 import r2pipe
+import binaryninja as bn
 
 from binascii import *
 from rage.machine import Machine
 from rage.log import aegis_log
+
 
 
 class Against:
