@@ -253,6 +253,11 @@ class Machine:
                     funcs.append(func)
 
         return funcs
+    
+    def find_win_path(self, function: bn.function.Function):
+        
+
+        return params
 
     def find_writable_address(self):
         """
