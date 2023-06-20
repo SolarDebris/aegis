@@ -254,9 +254,11 @@ class Machine:
 
         return funcs
     
-    def find_win_path(self, function: bn.function.Function):
-        
+    def find_win_path(self, function: bn.function.Function, address):
+        """Return the parameters required for a function to reach a certain block in the cfg.""" 
 
+        cfg = function.create_graph(8, None)
+        
         return params
 
     def find_writable_address(self):
