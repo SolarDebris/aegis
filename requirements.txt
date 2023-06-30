@@ -1,0 +1,7 @@
+angr
+argparse
+claripy
+logging
+pwn
+r2pipe
+r2
