@@ -90,8 +90,8 @@ class Printf(angr.SimProcedure):
         return None
 
 
-angr.AnalysesHub.register_default("BufferOverflow", BufferOverflow)
-angr.AnalysesHub.register_default("FormatVulnerability", FormatVulnerability)
+angr.analyses.AnalysesHub.register_default("BufferOverflow", BufferOverflow)
+angr.analyses.AnalysesHub.register_default("FormatVulnerability", FormatVulnerability)
 
 
 if __name__ == "__main__":

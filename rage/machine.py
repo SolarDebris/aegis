@@ -14,7 +14,7 @@ class Machine:
     def __init__(self, binary):
         """Set up all variables for the class."""
         self.binary = binary
-        self.bv = bn.open_view(self.binary)
+        self.bv = bn.load(self.binary)
         self.arch = self.bv.arch.name
         self.functions = self.bv.functions
         self.strings = self.bv.strings
@@ -70,6 +70,7 @@ class Machine:
         # we check the space the stack has before and make sure that the
         # input is less than or equal to the space the stack has left befor
         if "gets" in dest_function.name or "read" in dest_function.name or "scanf" in dest_function.name:
+        
             input_size = 0
             buff = None
             var = None
@@ -204,7 +205,7 @@ class Machine:
         variable_set = False
         # Wait until stack reaches the variable
         for core_variable, stack_variable in zip(function.core_var_stack_layout, function.stack_layout):
-            if stack_variable.name == input_variable:
+            if stack_variable.name == input_variable or stack_variable.name == "buf":
                 variable_set = True
             if variable_set:
                 # If there is a canary find subtract the space the canary takes up
@@ -221,6 +222,7 @@ class Machine:
         size = 0
         variable_set = False
         for core_variable, stack_variable in zip(function.core_var_stack_layout, function.stack_layout):
+            print(f"Core Variable {core_variable} Stack variable {stack_variable}")
             if variable_set is True:
                 size += core_variable.storage
                 break

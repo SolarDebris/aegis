@@ -54,17 +54,22 @@ class Aegis:
         """Choose which exploit to do for the binary."""
         
         win_gadget = self.machine.find_win_gadget()
-        function = self.machine.find_functions(["win", "system", "execve", "syscall"])[0]
+        function = self.machine.find_functions(["win", "system", "execve", "syscall"])
         string = self.machine.find_string_address()
         printf_addresses = self.machine.check_vulnerable_printf()
         self.against.chain = b""
         writeable = None
 
+        if len(function) > 0:
+            function = function[0]
+        else:
+            function = None
+
         # Choose the right padding size
         if self.symbolic_padding != None:
-            if self.machine.padding_size == len(self.symbolic_padding):
-                self.against.padding = self.symbolic_padding
-            else:
+            #if self.machine.padding_size == len(self.symbolic_padding):
+            self.against.padding = self.symbolic_padding
+            if self.failed:
                 self.against.padding = b"A" * self.machine.padding_size
         else:
             self.against.padding = b"A" * self.machine.padding_size
