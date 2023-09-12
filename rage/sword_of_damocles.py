@@ -2,6 +2,8 @@ import sys
 
 from pygdbmi.controller import GdbController
 
+import binaryninja as bn
+
 
 class Sword:
     def __init__(self, binary):

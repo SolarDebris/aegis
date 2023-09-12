@@ -261,9 +261,11 @@ class Against:
         """Return a format write string payload."""
         return None
 
-    def send_exploit(self, process, exploit):
+    def send_exploit(self, process):
         """Send the exploit that was generated."""
-        return None
+        if self.exploit != None:
+            process.sendline(self.exploit)
+
 
     def verify_flag(self, process):
         """Return whether the exploit worked or didn't."""
@@ -278,6 +280,7 @@ class Against:
                 self.flag = b"{" + output.split(b"{")[1].replace(b" ", b"")
                 self.flag = self.flag.replace(b"\n", b"").split(b"}")[0] + b"}"
                 self.flag = self.flag.decode()
+                aegis.log(f"Captured the flag !!! {self.flag}")
                 return 1
         except EOFError:
             return -1
