@@ -1,8 +1,8 @@
 import sys
+import binaryninja as bn
 
 from pygdbmi.controller import GdbController
 
-import binaryninja as bn
 
 
 class Sword:

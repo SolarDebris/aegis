@@ -238,8 +238,16 @@ class Machine:
         # TODO
         return None
 
-    def get_input_delimiter(self):
+    def get_input_delimiter(self, function):
         """Set the input delimiter."""
+        func = self.bv.get_functions_by_name(function)
+
+        if len(func) > 0:
+            func = func[0]
+        else:
+            return None
+
+
         return None
 
     def create_menu(self):
@@ -297,15 +305,24 @@ class Machine:
     def find_string_address(self):
         """Return the address of a string used to get flag."""
         important_strings = ["/bin/sh", "/bin/cat flag.txt", "cat flag.txt", "flag.txt", "/bin/bash", "sh"]
+        strings_found = []
 
         for string in self.bv.strings:
             for target_string in important_strings:
                 if target_string in string.value:
                     index = string.value.index(target_string)
                     address = string.start + index
-                    aegis_log.info(f"Found string \"{string.value[index:].strip()}\" at {hex(address)}")
-                    return address
-        return None
+                    string_value = string.value[index:].strip()
+                    strings_found.append((string_value, address))
+
+        strings_found.sort(key=lambda x: important_strings.index(x[0]))
+
+        if len(strings_found) > 0:
+            exploit_string = strings_found[0]
+            aegis_log.info(f"Found string \"{exploit_string[0]}\" at {hex(exploit_string[1])}")
+            return exploit_string[1]
+        else:
+            return None
 
     def find_win_gadget(self):
         """Return the address of a win gadget."""

