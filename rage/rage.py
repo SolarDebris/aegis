@@ -12,12 +12,14 @@ class rAEG:
     def __init__(self, binary):
         self.binary = binary
         self.project = angr.Project(self.binary, load_options={"auto_load_libs":"false"})
+        self.has_format = False
 
     def stack_smash(self):
         """Analyze the buffer overflow."""
         aegis_log.info("Starting symbolic analysis for buffer overflow")
         stack_smash = self.project.analyses.BufferOverflow(self.binary)
         self.symbolic_padding = stack_smash.symbolic_padding
+        self.has_format = stack_smash.has_format
         if self.symbolic_padding is not None:
             aegis_log.info(f"Found symbolic padding with length of {len(self.symbolic_padding)}")
             aegis_log.info(f"Symbolic Padding: {self.symbolic_padding}")
@@ -28,6 +30,7 @@ class BufferOverflow(angr.Analysis):
 
     def __init__(self, binary):
         self.binary = binary
+        self.has_format = False
         self.stack_smash()
 
     def check_memory_corruption(self, simgr):
@@ -68,13 +71,11 @@ class BufferOverflow(angr.Analysis):
         simgr.explore(step_func=self.check_memory_corruption)
 
         for e in simgr.errored:
-            if e.error == angr.errors.SimProcedureError("Symbolic (format) string game over :("):
-                aegis_log.warn(f"Found symbolic format string with error {e}")
-            aegis_log.warn(f"angr simulation failed with error {e.error}")
-
+            if str(e.error) == "Symbolic (format) string, game over :(":
+                self.has_format = True
+                aegis_log.warn(f"Found symbolic format string")
 
         return self.symbolic_padding
-
 
 class FormatVulnerability(angr.Analysis):
     """Class that uses angr to analyze for format string vulnerabilities."""
@@ -88,7 +89,6 @@ class Printf(angr.SimProcedure):
 
     def run(self):
         return None
-
 
 angr.analyses.AnalysesHub.register_default("BufferOverflow", BufferOverflow)
 angr.analyses.AnalysesHub.register_default("FormatVulnerability", FormatVulnerability)

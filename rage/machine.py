@@ -41,7 +41,6 @@ class Machine:
     def is_user_controlled(self, variable: bn.variable.Variable):
         """
         Return true or false if the variable is user controlled.
-
         Check if a variable is user controlled through arguments or prompted
         user input.
         """
@@ -169,6 +168,7 @@ class Machine:
                             aegis_log.info(f"Found vulnerable printf {hex(instruction.address)}")
                             self.format_vuln = True
                             addresses.append(instruction.address)
+        
         return addresses
 
     def check_vulnerable_copy(self):
@@ -287,20 +287,21 @@ class Machine:
                     return section.start
         return None
 
-    def find_unused_got_functions(self, address):
+    def find_target_got_functions(self, address):
         """Return functions that's got entry is empty at a certain point."""
-        plt_section = self.bv.get_section_by_name(".plt")
+        got_section = self.bv.get_section_by_name(".plt")
         # TODO Get a linear method for going through the instructions of the program
-        got_filled = []
-        for instruction in self.bv.mlil_instructions:
+        got_entries = []
+        function = self.bv.get_function_at(address)
+        for instruction in function.mlil_instructions:
             if instruction.operation == bn.MediumLevelILOperation.MLIL_CALL:
                 if type(instruction.dest) == bn.mediumlevelil.MediumLevelILConstPtr:
                     # Check if function being called is in the plt
-                    if instruction.dest.constant >= plt_section.start and instruction.dest.constant <= plt_section.end:
+                    if instruction.dest.constant >= got_section.start and instruction.dest.constant <= got_section.end:
                         symbol = self.bv.get_symbol_at(instruction.dest.constant)
-                        got_filled.append(symbol.name)
+                        got_entries.append(symbol.name)
 
-        return None
+        return got_entries
 
     def find_string_address(self):
         """Return the address of a string used to get flag."""
