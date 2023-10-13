@@ -14,6 +14,7 @@ class rAEG:
         self.project = angr.Project(self.binary, load_options={"auto_load_libs":"false"})
         self.has_format = False
 
+
     def stack_smash(self):
         """Analyze the buffer overflow."""
         aegis_log.info("Starting symbolic analysis for buffer overflow")
@@ -67,6 +68,15 @@ class BufferOverflow(angr.Analysis):
 
         simgr = self.project.factory.simgr(state)
         simgr.stashes["mem_corrupt"] = []
+
+        # angr gets angy when fgets has a large buffer.
+        # in this case 60000
+        def stop_lg_fgets(state):
+            size = state.solver.eval(state.regs.rsi)
+            if size >= 1000:
+                simgr.drop(stash = "active")
+
+        self.project.hook_symbol("fgets", stop_lg_fgets)
 
         simgr.explore(step_func=self.check_memory_corruption)
 

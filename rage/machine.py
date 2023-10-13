@@ -287,12 +287,12 @@ class Machine:
                     return section.start
         return None
 
-    def find_target_got_functions(self, address):
+    def find_target_got_entries(self, address):
         """Return functions that's got entry is empty at a certain point."""
         got_section = self.bv.get_section_by_name(".plt")
         # TODO Get a linear method for going through the instructions of the program
         got_entries = []
-        function = self.bv.get_function_at(address)
+        function = self.bv.get_functions_containing(address)[0]
         for instruction in function.mlil_instructions:
             if instruction.operation == bn.MediumLevelILOperation.MLIL_CALL:
                 if type(instruction.dest) == bn.mediumlevelil.MediumLevelILConstPtr:
@@ -301,6 +301,7 @@ class Machine:
                         symbol = self.bv.get_symbol_at(instruction.dest.constant)
                         got_entries.append(symbol.name)
 
+        aegis_log.info(f"Found {got_entries}")
         return got_entries
 
     def find_string_address(self):
