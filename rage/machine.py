@@ -271,20 +271,27 @@ class Machine:
         
         return params
 
-    def find_writable_address(self):
+    def find_writeable_address(self):
         """
         Return a writable address in memory.
 
         Finds a writable address of memory in the binary without interfering
         with variables.
         """
-        # !TODO Add a section to find an empty set of characters
         for section in self.sections.keys():
             section = self.sections.get(section)
-            if section.name == ".data" or section.name == ".bss":
+            if section.name == ".data":
+            #or section.name == ".bss":
                 if self.bv.is_offset_writable(section.start):
                     aegis_log.info(f"Found a writable address at {hex(section.start)}")
-                    return section.start
+                    address = section.start
+                    is_empty = False
+                    while(is_empty == False and address < section.end):
+
+                        res = self.bv.read(address, 8)
+                        is_empty = all(byte == 0 for byte in res) 
+
+                    return address
         return None
 
     def find_target_got_entries(self, address):
@@ -306,7 +313,7 @@ class Machine:
 
     def find_string_address(self):
         """Return the address of a string used to get flag."""
-        important_strings = ["/bin/sh", "/bin/cat flag.txt", "cat flag.txt", "flag.txt", "/bin/bash", "sh"]
+        important_strings = ["/bin/sh", "/bin/cat flag.txt", "cat flag.txt", "flag.txt", "/bin/bash"]#, "sh"]
         strings_found = []
 
         for string in self.bv.strings:
@@ -347,6 +354,7 @@ class Machine:
 
     def find_pop_reg_gadget(self, register):
         """Return a rop gadget to control a register using a pop gadget."""
+
         output = subprocess.check_output(["ROPgadget", "--binary", self.binary, "--re", f"{register}", "--only", "pop|ret"]).split(b"\n")
         output.pop(0)
         output.pop(0)
@@ -399,8 +407,6 @@ class Machine:
                     reg1 = instruction.split(b",")[0].split(b" ")[1].strip()
                     reg2 = instruction.split(b",")[1].strip()
 
-                    print(reg1)
-                    print(reg2 + "\n\n")
                     if reg1[1:] != reg2[1:]:
                         valid_gadgets.append(gadget)
                         if chr(reg1[0]) == "r":
@@ -455,8 +461,6 @@ class Machine:
                     reg1 = instruction.split(b",")[0].split(b" ")[1].strip()
                     reg2 = instruction.split(b",")[1].strip()
 
-                    print(reg1)
-                    print(reg2 + "\n\n")
                     if reg1[1:] != reg2[1:]:
                         valid_gadgets.append(gadget)
                         if chr(reg1[0]) == "r":
@@ -487,6 +491,7 @@ class Machine:
 
     def find_reg_gadget(self, register):
         """Return a chain that sets the registers."""
+
         pop = self.find_pop_reg_gadget(register)
         chain = []
 

