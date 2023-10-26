@@ -14,7 +14,7 @@ COLORS = {
 
 def custom_formatter(record):
     color = COLORS.get(record.levelno, colorama.Fore.WHITE)  
-    log_message = f"🛡️  {color}[{record.levelname}] - aegis: {record.msg}{colorama.Style.RESET_ALL}"
+    log_message = f"🛡️  {color}[{record.levelname}] ⚔️  - aegis: {record.msg}{colorama.Style.RESET_ALL}"
     return log_message
 
 class UniqueLogFilter(logging.Filter):
