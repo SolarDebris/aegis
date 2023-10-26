@@ -1,28 +1,48 @@
 import logging
 import colorama
 
-# Initialize colorama to allow printing colored text on the console
 colorama.init()
-
-# Create a custom logger with the name 'aegis_log'
 aegis_log = logging.getLogger('aegis_log')
+aegis_log.setLevel(logging.DEBUG)
 
-# Set the logging level to INFO
-aegis_log.setLevel(logging.INFO)
+COLORS = {
+    logging.DEBUG: colorama.Fore.CYAN,     
+    logging.INFO: colorama.Fore.GREEN,     
+    logging.WARNING: colorama.Fore.MAGENTA, 
+    logging.ERROR: colorama.Fore.RED,       
+}
 
-# Create a formatter that will add colors to the log messages
-formatter = logging.Formatter(
-    f"{colorama.Fore.MAGENTA}%(asctime)s [%(levelname)s] %(message)s{colorama.Style.RESET_ALL}"
-)
+def custom_formatter(record):
+    color = COLORS.get(record.levelno, colorama.Fore.WHITE)  
+    log_message = f"🛡️  {color}[{record.levelname}] - aegis: {record.msg}{colorama.Style.RESET_ALL}"
+    return log_message
 
-# Create a console handler and set its formatter to the one we just created
+class UniqueLogFilter(logging.Filter):
+    def __init__(self):
+        self.logged_messages = set()
+
+    def filter(self, record):
+        if record.msg in self.logged_messages:
+            return False
+        self.logged_messages.add(record.msg)
+        return True
+
+formatter = logging.Formatter("%(message)s")
+formatter.format = custom_formatter
+
+unique_log_filter = UniqueLogFilter()
+aegis_log.addFilter(unique_log_filter)
+
+
 console_handler = logging.StreamHandler()
 console_handler.setFormatter(formatter)
 
-# Add the console handler to the logger
 aegis_log.addHandler(console_handler)
 
-# Now we can log messages using our custom logger with colors
-#aegis_log.info("This is an info message")
-#aegis_log.warning("This is a warning message")
-#aegis_log.error("This is an error message")
+
+if __name__ == "__main__":
+    aegis_log.info("This is an info message")
+    aegis_log.warning("This is a warning message")
+    aegis_log.error("This is an error message")
+    aegis_log.debug("This is a debug message")
+

