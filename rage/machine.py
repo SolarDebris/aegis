@@ -222,7 +222,7 @@ class Machine:
         size = 0
         variable_set = False
         for core_variable, stack_variable in zip(function.core_var_stack_layout, function.stack_layout):
-            print(f"Core Variable {core_variable} Stack variable {stack_variable}")
+            #print(f"Core Variable {core_variable} Stack variable {stack_variable}")
             if variable_set is True:
                 size += core_variable.storage
                 break
@@ -313,7 +313,7 @@ class Machine:
 
     def find_string_address(self):
         """Return the address of a string used to get flag."""
-        important_strings = ["/bin/sh", "/bin/cat flag.txt", "cat flag.txt", "flag.txt", "/bin/bash"]#, "sh"]
+        important_strings = ["/bin/sh", "/bin/cat flag.txt", "cat flag.txt", "flag.txt", "/bin/bash", "sh"]
         strings_found = []
 
         for string in self.bv.strings:

