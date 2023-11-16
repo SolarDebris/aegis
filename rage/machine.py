@@ -262,6 +262,8 @@ class Machine:
                 if function.name == func:
                     funcs.append(func)
 
+        funcs.sort(key=lambda x: functions_list.index(x))
+
         return funcs
     
     def find_win_path(self, function: bn.function.Function, address):
@@ -323,8 +325,11 @@ class Machine:
                     address = string.start + index
                     string_value = string.value[index:].strip()
                     strings_found.append((string_value, address))
-
-        strings_found.sort(key=lambda x: important_strings.index(x[0]))
+                       
+        try:
+            strings_found.sort(key=lambda x: important_strings.index(x[0]))
+        except ValueError as e:
+            aegis_log.error(f"Could not sort string list: {e}")
 
         if len(strings_found) > 0:
             exploit_string = strings_found[0]

