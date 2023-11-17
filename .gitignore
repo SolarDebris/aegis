@@ -1,4 +1,5 @@
 .gdb_history
 *.out
 bins/*
+challenges.csv
 

@@ -315,7 +315,7 @@ class Machine:
 
     def find_string_address(self):
         """Return the address of a string used to get flag."""
-        important_strings = ["/bin/sh", "/bin/cat flag.txt", "cat flag.txt", "flag.txt", "/bin/bash", "sh"]
+        important_strings = ["/bin/sh", "/bin/cat flag.txt", "cat flag.txt", "flag.txt", "/bin/bash", "sh\n"]
         strings_found = []
 
         for string in self.bv.strings:

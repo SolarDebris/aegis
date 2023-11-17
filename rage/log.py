@@ -10,6 +10,8 @@ COLORS = {
     logging.INFO: colorama.Fore.GREEN,     
     logging.WARNING: colorama.Fore.MAGENTA, 
     logging.ERROR: colorama.Fore.RED,       
+    logging.CRITICAL: colorama.Fore.YELLOW
+
 }
 
 def custom_formatter(record):
@@ -45,4 +47,5 @@ if __name__ == "__main__":
     aegis_log.warning("This is a warning message")
     aegis_log.error("This is an error message")
     aegis_log.debug("This is a debug message")
+    aegis_log.critical("Critical")
 
