@@ -349,12 +349,15 @@ class Machine:
                 calls = self.bv.get_callers(sym.address)
                 for call in calls:
                     address = call.mlil.params[0].address
-                    string_addr = call.mlil.params[0].constant
-                    string = self.bv.get_ascii_string_at(string_addr)
+                    print(type(call.mlil.params[0]))
 
-                    if string.value in important_strings:
-                        aegis_log.info(f"Found ret2win gadget at {hex(address)}")
-                        return address
+                    if type(call.mlil.params[0]) == bn.mediumlevelil.MediumLevelILConstPtr:
+                        string_addr = call.mlil.params[0].constant
+                        string = self.bv.get_ascii_string_at(string_addr)
+
+                        if string.value in important_strings:
+                            aegis_log.info(f"Found ret2win gadget at {hex(address)}")
+                            return address
         return None
 
     def find_pop_reg_gadget(self, register):

