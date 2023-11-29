@@ -75,8 +75,15 @@ class BufferOverflow(angr.Analysis):
             size = state.solver.eval(state.regs.rsi)
             if size >= 1000:
                 simgr.drop(stash = "active")
-
+        
+        def stop_memmem(state):
+            aegis_log.warning(f"Found memmem setting timeout to 5 sec")
+            simgr.use_technique(angr.exploration_techniques.Timeout(timeout=5))
+            
+            
+ 
         self.project.hook_symbol("fgets", stop_lg_fgets)
+        self.project.hook_symbol("memmem", stop_memmem)
 
         simgr.explore(step_func=self.check_memory_corruption)
 
@@ -84,6 +91,8 @@ class BufferOverflow(angr.Analysis):
             if str(e.error) == "Symbolic (format) string, game over :(":
                 self.has_format = True
                 aegis_log.warn(f"Found symbolic format string")
+            else:
+                aegis_log.error(f"Angr error {e}")
 
         return self.symbolic_padding
 

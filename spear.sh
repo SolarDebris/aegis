@@ -1,7 +1,8 @@
 #!/bin/bash
 
+export CTFD_TOK=$(cat ~/ctfd_tok)
+export SEM="3"
 ctfd="https://ace.ctfd.io"
-
 api_endpoint="/api/v1/challenges"
 challenge_url="${ctfd}${api_endpoint}"
 
@@ -9,7 +10,7 @@ json_response=$(curl -s -H "Authorization: Token $CTFD_TOK" -H "Content-Type: ap
 
 csv_data=$(echo "$json_response" | jq -r '.data[] | [.name, .id] | @csv')
 
-echo "$csv_data" | sed "s/\"//g" | sed "s/\,/\ /g" | awk '{print " ace-service-" $1 ".chals.io " "bins/" $1 " "$2}'  > challenges.csv
+echo "$csv_data" | sed "s/\"//g" | sed "s/\,/\ /g" | awk '{print " ace-service-" $1 ".chals.io " "bins/" $1 " "$2}' | sort > challenges.csv
 
 chals="./challenges.csv"
 
@@ -19,38 +20,20 @@ if [ ! -f "$chals" ]; then
 fi
 
 
-MAX_PROCESSES=10
-
-active_processes=0
-
-track_processes() {
-    active_processes=$(jobs -p | wc -l)
-}
-
 # Read each line from the file
 while IFS= read -r line; do
     read -r service file_path id <<< "$line"
   
-    command1="pwninit --libc libc/libc.so.6 --ld libc/ld-2.27.so --bin $file_path"
+    command1="pwninit --libc libc/libc.so.6 --ld libc/ld-2.27.so --bin $file_path > /dev/null 2>&1"
     patched_file=$file_path"_patched"
-    echo "$patched_file"
     command2="mv $patched_file $file_path"
-
     command="./aegis -bin $file_path -ip $service -ctfd $ctfd -id $id"
     
-
-    #while [ $active_processes -ge $MAX_PROCESSES ]; do
-        #track_processes
-        #hsleep 1
-    #done
-
-    #((active_processes++))
-    #echo "$command"
-    #{
     echo "$command1" | sh
     echo "$command2" | sh
     echo "$command"
     echo "$command" | sh
+    rm -rf solve.py
         #((active_processes--))
     #} &
 done < "$chals"

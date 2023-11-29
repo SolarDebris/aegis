@@ -24,6 +24,7 @@ class Machine:
         self.reg_args = self.bv.platform.default_calling_convention.int_arg_regs
 
         self.padding_size = 0
+        self.exploit_size = 0
 
         self.aslr = False
         self.canary = False
@@ -82,7 +83,7 @@ class Machine:
                         format_var = self.bv.define_user_data_var(instruction.params[0].constant, c_string_type[0])
                         if format_var.value == b"%s\x00":
                             buff = instruction.get_reg_value(self.reg_args[1]).value
-                            input_size = sys.maxsize
+                            input_size = 0x1000 
 
             if dest_function.name == "fgets":
                 if type(instruction.params[0]) == bn.variable.StackFrameOffsetRegisterValue:
@@ -92,7 +93,8 @@ class Machine:
             elif dest_function.name == "gets":
                 if type(instruction.params[0]) == bn.mediumlevelil.MediumLevelILVar:
                     buff = instruction.get_reg_value(self.reg_args[0]).value
-                    input_size = sys.maxsize
+                    
+                    input_size = 0x1000
                     self.buffer_overflow = True
 
             elif dest_function.name == "read":
@@ -100,14 +102,18 @@ class Machine:
                     input_size = instruction.params[2].constant
                     buff = instruction.get_reg_value(self.reg_args[1]).value
                 elif type(instruction.params[1]) == bn.mediumlevelil.MediumLevelILVar:
-                    input_size = instruction.params[2].constant
+                    if type(instruction.params[2]) == bn.mediumlevelil.MediumLevelILConst:
+                        input_size = instruction.params[2].constant
                     buff = instruction.get_reg_value(self.reg_args[1]).value
 
             if type(buff) == int:
                 var = "var_" + hex(buff * -1).split("0x")[1]
+
             self.padding_size = self.get_padding_size(function, var)
+
             if self.padding_size < input_size:
-                aegis_log.info(f"Found buffer overflow with a padding of {self.padding_size}")
+                self.exploit_size = input_size - self.padding_size
+                aegis_log.info(f"Found buffer overflow with a padding of {self.padding_size} and exploit size of {self.exploit_size}")
                 self.buffer_overflow = True
             # Add variable overflow check to this part
 
@@ -154,6 +160,150 @@ class Machine:
         """Check if the current function qualifies as a win function."""
         # !TODO Create a function that checks for a win function in the binary.
         return None
+
+    def check_array_write(self):
+        """Find a write using array out of bounds"""
+        instructions = []
+
+        pointer_var = None
+        set_pointer = None
+        size = None
+        addr = None
+
+        for instr in reversed(list(self.bv.hlil_instructions)):
+            # check if there is an assign dereference and grab the variable 
+            # being dereferenced
+            if type(instr) == bn.highlevelil.HighLevelILAssign:
+                if type(instr.operands[0]) == bn.highlevelil.HighLevelILDeref: 
+    
+                    deref = instr.operands[0].operands[0]
+                    if type(deref) == bn.highlevelil.HighLevelILDeref:
+                        deref = deref.operands[0]
+
+                    if type(deref) == bn.highlevelil.HighLevelILVar:
+                        pointer_var = deref
+                    elif type(deref) == bn.highlevelil.HighLevelILAdd:
+
+                        # Check first operand of hlil add
+                        if type(deref.operands[0]) == bn.highlevelil.HighLevelILMul:
+                            mul = deref.operands[0]
+                            if type(mul.operands[0]) == bn.highlevelil.HighLevelILConst:
+                                size = mul.operands[0].constant
+                            elif type(mul.operands[1]) == bn.highlevelil.HighLevelILConst:
+                                size = mul.operands[1].constant
+                        elif type(deref.operands[0]) == bn.highlevelil.HighLevelILLsl:
+                            size = 1 << deref.operands[0].operands[1].constant
+                        elif type(deref.operands[0]) == bn.highlevelil.HighLevelILConstPtr:
+                            addr = deref.operands[0].constant
+
+                        # Check second operand of hlil add
+                        if type(deref.operands[1]) == bn.highlevelil.HighLevelILMul:
+                            mul = deref.operands[1]
+                            if type(mul.operands[0]) == bn.highlevelil.HighLevelILConst:
+                                size = mul.operands[0].constant
+                            elif type(mul.operands[1]) == bn.highlevelil.HighLevelILConst:
+                                size = mul.operands[1].constant
+                        elif type(deref.operands[1]) == bn.highlevelil.HighLevelILLsl:
+                            size = 1 << deref.operands[1].operands[1].constant
+                        elif type(deref.operands[1]) == bn.highlevelil.HighLevelILConstPtr:
+                            addr = deref.operands[1].constant
+
+
+            elif type(instr) == bn.highlevelil.HighLevelILVarInit:
+                if type(instr.operands[0]) == bn.highlevelil.HighLevelILDeref:
+                    instr = instr.operands[0]
+                var = instr.operands[0]
+
+                if type(instr.operands[1]) == bn.highlevelil.HighLevelILAdd:
+                    add = instr.operands[1]
+
+                    # Check first operand of hlil add
+                    if type(add.operands[0]) == bn.highlevelil.HighLevelILMul:
+                        mul = add.operands[0]
+                        if type(mul.operands[0]) == bn.highlevelil.HighLevelILConst:
+                            size = mul.operands[0].constant
+                        elif type(mul.operands[1]) == bn.highlevelil.HighLevelILConst:
+                            size = mul.operands[1].constant
+                    elif type(add.operands[0]) == bn.highlevelil.HighLevelILLsl:
+                        size = 1 << add.operands[0].operands[1].constant
+                    elif type(add.operands[0]) == bn.highlevelil.HighLevelILConstPtr:
+                        addr = add.operands[0].constant
+
+                    # Check second operand of hlil add
+                    if type(add.operands[1]) == bn.highlevelil.HighLevelILMul:
+                        mul = add.operands[1]
+                        if type(mul.operands[0]) == bn.highlevelil.HighLevelILConst:
+                            size = mul.operands[0].constant
+                        elif type(mul.operands[1]) == bn.highlevelil.HighLevelILConst:
+                            size = mul.operands[1].constant
+                    elif type(add.operands[1]) == bn.highlevelil.HighLevelILLsl:
+                        size = 1 << add.operands[1].operands[1].constant
+                    elif type(add.operands[1]) == bn.highlevelil.HighLevelILConstPtr:
+                        addr = add.operands[1].constant
+
+                if pointer_var != None and instr.operands[0] == pointer_var.var:
+
+                    set_pointer = instr.operands[1]
+            elif type(instr) == bn.highlevelil.HighLevelILCall:
+                call = instr.operands[0]
+                if type(call) == bn.highlevelil.HighLevelILConstPtr:
+                    call_name = self.bv.get_symbol_at(call.constant).name if self.bv.get_symbol_at(call.constant) else None
+                    if call_name == "memcpy":
+                        memory = instr.operands[1][0]
+                        if type(memory) == bn.highlevelil.HighLevelILAdd:
+                            if type(memory.operands[0]) == bn.highlevelil.HighLevelILLsl:
+                                size = 1 << memory.operands[0].operands[1].constant
+                            elif type(memory.operands[0]) == bn.highlevelil.HighLevelILMul:
+                                mul = memory.operands[0]
+                                if type(mul.operands[0]) == bn.highlevelil.HighLevelILConst:
+                                    size = mul.operands[0].constant
+                                elif type(mul.operands[1]) == bn.highlevelil.HighLevelILConst:
+                                    size = mul.operands[1].constant
+
+                            elif type(memory.operands[0]) == bn.highlevelil.HighLevelILConstPtr:
+                                addr = memory.operands[0].constant
+                                
+                            if type(memory.operands[1]) == bn.highlevelil.HighLevelILLsl:
+                                size = 1 << memory.operands[1].operands[1].constant
+                            elif type(memory.operands[1]) == bn.highlevelil.HighLevelILMul:
+                                mul = memory.operands[1]
+                                if type(mul.operands[0]) == bn.highlevelil.HighLevelILConst:
+                                    size = mul.operands[0].constant
+                                elif type(mul.operands[1]) == bn.highlevelil.HighLevelILConst:
+                                    size = mul.operands[1].constant
+
+                            elif type(memory.operands[1]) == bn.highlevelil.HighLevelILConstPtr:
+                                addr = memory.operands[1].constant
+
+                        elif type(memory) == bn.highlevelil.HighLevelILMul:
+                            mul = memory.operands
+                            if type(mul.operands[0]) == bn.highlevelil.HighLevelILConst:
+                                size = mul.operands[0].constant
+                            elif type(mul.operands[1]) == bn.highlevelil.HighLevelILConst:
+                                size = mul.operands[1].constant
+
+
+
+        if set_pointer != None:
+
+            if type(set_pointer) == bn.highlevelil.HighLevelILAdd:
+                base = set_pointer.operands[0]
+                offset = set_pointer.operands[1]
+                if type(base) == bn.highlevelil.HighLevelILDeref:
+                    if type(base.operands[0]) == bn.highlevelil.HighLevelILDeref:
+                        base = base.operands[0]
+                    if type(base.operands[0]) == bn.highlevelil.HighLevelILConstPtr:
+                        if addr == None:
+                            addr = base.operands[0].constant
+                if type(offset) == bn.highlevelil.HighLevelILLsl:
+                    value = offset.operands[1].constant
+                    size = 1 << value
+
+        if addr != None:
+            aegis_log.info(f"Found array out of bounds at base {hex(addr)} with size {size}")
+        return addr, size
+
+
 
     def check_vulnerable_printf(self):
         """Find a printf that is vulnerable to format string exploits."""
@@ -207,14 +357,7 @@ class Machine:
         for core_variable, stack_variable in zip(function.core_var_stack_layout, function.stack_layout):
             if stack_variable.name == input_variable or stack_variable.name == "buf":
                 variable_set = True
-            if variable_set:
-                # If there is a canary find subtract the space the canary takes up
-                if self.canary_var is not None and stack_variable.name == self.canary_var.name:
-                    size += core_variable.storage
-                    return size
-                if stack_variable.name == "__saved_rbp":
-                    return size
-                size -= core_variable.storage
+                size = core_variable.storage * -1
         return size
 
     def get_variable_size(self, function: bn.function.Function, variable):
@@ -233,13 +376,44 @@ class Machine:
 
         return size
 
-    def get_got_functions(self):
+    def get_struct_size(self, function: bn.function.Function):
+
+        return size
+
+
+    def get_goal_addr(self, function):
+        goal_funcs = ["fopen", "system", "execve"]
+        func = self.bv.get_functions_by_name(function)[0]
+        addr = None
+
+        for func_name in goal_funcs:
+            sym = self.bv.get_symbol_by_raw_name(func_name)
+            if sym != None:
+                calls = self.bv.get_callers(sym.address)
+                for call in calls:
+                    address = call.mlil.address
+                    if address >= func.address_ranges[0].start and address <= func.address_ranges[0].end:
+                        addr = address
+        return addr
+
+    def get_got_functions(self, function):
         """Return all got functions."""
         # TODO
-        return None
+        function = self.bv.get_functions_by_name(function)[0]
+        
+        plt_section = self.bv.get_section_by_name(".plt")
+        got_funcs = []
+
+        for call in function.call_sites:
+            if type(call.hlil) == bn.highlevelil.HighLevelILCall and type(call.hlil.operands[0]) == bn.highlevelil.HighLevelILConstPtr:
+                ptr = call.hlil.operands[0].constant
+                if ptr >= plt_section.start and ptr <= plt_section.end:
+                    name = self.bv.get_symbol_at(ptr).name
+                    got_funcs.append(name)
+        return got_funcs
 
     def get_input_delimiter(self, function):
-        """Set the input delimiter."""
+        """Get the input delimiter."""
         func = self.bv.get_functions_by_name(function)
 
         if len(func) > 0:
@@ -247,8 +421,67 @@ class Machine:
         else:
             return None
 
-
         return None
+
+    def get_first_var_value(self, address, var: bn.mediumlevelil.MediumLevelILVar):
+        variables = []
+        variables.insert(0,var.var.name)
+        val = None
+
+        function = self.bv.get_functions_containing(address)[0]
+        params = function.parameter_vars
+    
+        for instr in reversed(list(function.mlil.instructions)):
+            if instr.address > address:
+                continue
+     
+            if type(instr) == bn.mediumlevelil.MediumLevelILSetVar:
+                val = instr.operands[1]
+                setvar = instr.operands[0]
+
+                if variables[0] == setvar.name:
+                    if type(val) == bn.mediumlevelil.MediumLevelILConst:
+                        return val.constant
+                    elif type(val) == bn.mediumlevelil.MediumLevelILConstPtr:
+                        return val.constant
+                    elif type(val) == bn.mediumlevelil.MediumLevelILAddressOf:
+                        variables.insert(0, val.operands[0].name)
+                    elif type(val) == bn.mediumlevelil.MediumLevelILZx or type(val) == bn.mediumlevelil.MediumLevelILSx:
+                        variables.insert(0,val.operands[0].var.name)
+                    elif type(val) == bn.mediumlevelil.MediumLevelILVar:
+                        if val.var in params:
+                            return val
+                        else:
+                            variables.insert(0,val.var.name)
+                    elif type(val) == bn.mediumlevelil.MediumLevelILLowPart:
+                        variables.insert(0,val.operands[0].var.name)   
+            elif type(instr) == bn.mediumlevelil.MediumLevelILSetVarSplit:
+                if instr.operands[0].name == variables[0] or instr.operands[1].name == variables[0]:
+                    variables.insert(0,instr.operands[2].operands[0].var.name)
+            
+            elif type(instr) == bn.mediumlevelil.MediumLevelILCall:
+
+                call = instr.operands[1]
+                if type(call) == bn.mediumlevelil.MediumLevelILConstPtr:
+                    addr = call.constant
+
+                    sym = self.bv.get_symbol_at(addr)
+                    name = sym.name if sym != None else None
+
+                    if name == "__builtin_strncpy":
+                        #print(f"Call {instr}  Op {instr.operands}")
+                        dest = instr.params[0]
+                        src = instr.params[1]
+                        if type(dest) == bn.mediumlevelil.MediumLevelILAddressOf:
+                            dest_var = dest.operands[0]
+                            if type(dest_var) == bn.variable.Variable:
+                                dest_var = dest_var.name
+                                if dest_var == variables[0]:
+                                    if type(src) == bn.mediumlevelil.MediumLevelILConstData:
+                                        string = src.constant_data.data.escape(null_terminates=True)
+                                        return string
+        return val
+
 
     def create_menu(self):
         """Create an automatic menu script."""
@@ -266,12 +499,50 @@ class Machine:
 
         return funcs
     
-    def find_win_path(self, function: bn.function.Function, address):
+    def find_path(self, function, address):
         """Return the parameters required for a function to reach a certain block in the cfg.""" 
 
-        cfg = function.create_graph(8, None)
-        
+        func = self.bv.get_functions_by_name(function)[0]
+
+        end_block = self.bv.get_basic_blocks_at(address)[0]
+        start_block = self.bv.get_basic_blocks_at(func.start)[0]
+        current_block = end_block
+        params = []
+
+        while current_block != start_block:
+            branch = current_block.incoming_edges[0]
+            prev_block = branch.source
+            prev_block_end = prev_block.get_disassembly_text()[-1].address
+            mlil_index = func.mlil.get_instruction_start(prev_block_end)
+            
+            i = 0
+            conditional_inst = None
+
+            for instr in func.mlil.instructions:
+                if i == mlil_index:
+                    conditional_inst = instr
+                i += 1
+
+
+            condition = conditional_inst.condition
+            operation = condition.tokens[1]
+            operands = condition.operands
+            
+            var = operands[0] if type(operands[0]) == bn.mediumlevelil.MediumLevelILVar else operands[1]
+            value = operands[1] if type(operands[1]) == bn.mediumlevelil.MediumLevelILConst else operands[0]
+
+            first_var = self.get_first_var_value(conditional_inst.address, var)
+            if type(first_var) == bn.mediumlevelil.MediumLevelILVar and type(value) == bn.mediumlevelil.MediumLevelILConst:
+
+                index = list(func.parameter_vars).index(first_var.var)
+                params.insert(index, value.constant)
+
+            current_block = prev_block 
+
+        #print(params)
         return params
+
+    
 
     def find_writeable_address(self):
         """
@@ -302,7 +573,7 @@ class Machine:
         # TODO Get a linear method for going through the instructions of the program
         got_entries = []
         function = self.bv.get_functions_containing(address)[0]
-        for instruction in function.mlil_instructions:
+        for instruction in function.mlil.instructions:
             if instruction.operation == bn.MediumLevelILOperation.MLIL_CALL:
                 if type(instruction.dest) == bn.mediumlevelil.MediumLevelILConstPtr:
                     # Check if function being called is in the plt
@@ -315,7 +586,7 @@ class Machine:
 
     def find_string_address(self):
         """Return the address of a string used to get flag."""
-        important_strings = ["/bin/sh", "/bin/cat flag.txt", "cat flag.txt", "flag.txt", "/bin/bash", "sh\n"]
+        important_strings = ["/bin/sh", "/bin/cat flag.txt", "cat flag.txt", "flag.txt", "/bin/bash", "sh\x00"]
         strings_found = []
 
         for string in self.bv.strings:
@@ -349,7 +620,6 @@ class Machine:
                 calls = self.bv.get_callers(sym.address)
                 for call in calls:
                     address = call.mlil.params[0].address
-                    print(type(call.mlil.params[0]))
 
                     if type(call.mlil.params[0]) == bn.mediumlevelil.MediumLevelILConstPtr:
                         string_addr = call.mlil.params[0].constant
@@ -358,7 +628,15 @@ class Machine:
                         if string.value in important_strings:
                             aegis_log.info(f"Found ret2win gadget at {hex(address)}")
                             return address
+                    elif type(call.mlil.params[0]) == bn.mediumlevelil.MediumLevelILVar:
+                        var = call.mlil.params[0]
+                        string = self.get_first_var_value(address, var)
+                        if string in important_strings:
+                            return address
+
+
         return None
+
 
     def find_pop_reg_gadget(self, register):
         """Return a rop gadget to control a register using a pop gadget."""
@@ -500,6 +778,21 @@ class Machine:
     def find_reg_gadget(self, register):
         """Return a chain that sets the registers."""
 
+        full_reg = None
+
+        if register not in self.bv.arch.full_width_regs:
+            
+            small_reg = None
+            for reg in self.bv.arch.regs:
+                if register == reg:
+                    small_reg = reg
+
+            full_reg = self.bv.arch.regs[small_reg].full_width_reg if small_reg is not None else None
+            aegis_log.debug(f"Found full width register {full_reg}")
+
+        register = register if full_reg == None else full_reg
+
+
         pop = self.find_pop_reg_gadget(register)
         chain = []
 
@@ -577,7 +870,7 @@ class Machine:
         """Rename variables and functions in order to make analysis easier."""
         self.canary_var = None
         if self.canary:
-            for instruction in self.bv.mlil_instructions:
+            for instruction in self.bv.mlil.instructions:
                 if instruction.operation == bn.MediumLevelILOperation.MLIL_CALL:
                     if type(instruction.dest) == bn.mediumlevelil.MediumLevelILConstPtr:
                         symbol = self.bv.get_symbol_at(instruction.dest.constant)
