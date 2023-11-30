@@ -50,7 +50,6 @@ class Aegis:
 
     def static_analysis(self):
         self.machine.check_mitigations()
-        self.machine.check_vulnerable_copy()
         self.machine.check_vulnerable_input()
         self.array_write = self.machine.check_array_write()
         printf_addrs = self.machine.check_vulnerable_printf()
@@ -207,7 +206,7 @@ class Aegis:
 
     def send_flag(self, flag):
         """Sends the flag to ctfd service"""
-        if self.ctfd == None or self.id == None:
+        if self.ctfd == None or self.chal_id == None:
             return 
         challenge_url = f"{self.ctfd}/api/v1/challenges/attempt"
         data = json.dumps({"challenge_id" : self.chal_id, "submission" : flag})

@@ -24,7 +24,7 @@ fi
 while IFS= read -r line; do
     read -r service file_path id <<< "$line"
   
-    command1="pwninit --libc libc/libc.so.6 --ld libc/ld-2.27.so --bin $file_path > /dev/null 2>&1"
+    command1="pwninit --no-template --libc libc/libc.so.6 --ld libc/ld-2.27.so --bin $file_path > /dev/null 2>&1"
     patched_file=$file_path"_patched"
     command2="mv $patched_file $file_path"
     command="./aegis -bin $file_path -ip $service -ctfd $ctfd -id $id"
@@ -33,7 +33,6 @@ while IFS= read -r line; do
     echo "$command2" | sh
     echo "$command"
     echo "$command" | sh
-    rm -rf solve.py
         #((active_processes--))
     #} &
 done < "$chals"

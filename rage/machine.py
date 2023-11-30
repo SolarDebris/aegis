@@ -275,6 +275,27 @@ class Machine:
                                 size = mul.operands[0].constant
                             elif type(mul.operands[1]) == bn.highlevelil.HighLevelILConst:
                                 size = mul.operands[1].constant
+                    elif call_name == "read":
+                        dest = instr.params[1]
+                        if type(dest) == bn.highlevelil.HighLevelILAddressOf:
+                            if type(dest.operands[0]) == bn.highlevelil.HighLevelILArrayIndex:
+                                ind = dest.operands[0]
+                                if type(ind.operands[0]) == bn.highlevelil.HighLevelILDeref:
+                                    deref = ind.operands[0].operands[0]
+                                    if type(deref) == bn.highlevelil.HighLevelILConstPtr:
+                                        addr = deref.constant
+                                elif type(ind.operands[0]) == bn.highlevelil.HighLevelILConstPtr:
+                                    addr = ind.operands[0].constant
+                                    
+                                    var = self.bv.get_data_var_at(addr)
+                                    if var != None:
+                                        size = var.type.count
+
+                                if type(ind.operands[1]) == bn.highlevelil.HighLevelILLsl:
+                                    size = 1 << ind.operands[1].operands[1].constant
+                                elif type(ind.operands[1]) == bn.highlevelil.HighLevelILMul:
+                                    if type(ind.operands[1].operands[1]) == bn.highlevelil.HighLevelILConst:
+                                        size = ind.operands[1].operands[1].constant
 
 
 
