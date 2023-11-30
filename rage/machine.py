@@ -9,10 +9,10 @@ from rage.log import aegis_log
 
 
 class Machine:
-    """Class that is used for static analysis of a binary."""
+    """Uses binaryninja and ROPgadget for static analysis and grabbing info from binary."""
 
     def __init__(self, binary):
-        """Set up all variables for the class."""
+        
         self.binary = binary
         self.bv = bn.load(self.binary)
         self.arch = self.bv.arch.name
@@ -33,7 +33,6 @@ class Machine:
         self.relro = False
 
         self.canary_var = None
-
         self.printf_address = None
 
         # How we know the input ends
@@ -155,11 +154,6 @@ class Machine:
                 aegis_log.info(f"Found a copy buffer overflow with {padding_size}")
             elif buffer_size > dest_size:
                 aegis_log.info(f"Found a copy variable overflow with {buffer_size}")
-
-    def check_win_function(self):
-        """Check if the current function qualifies as a win function."""
-        # !TODO Create a function that checks for a win function in the binary.
-        return None
 
     def check_array_write(self):
         """Find a write using array out of bounds"""
@@ -320,18 +314,7 @@ class Machine:
                             addresses.append(instruction.address)
         
         return addresses
-
-    def check_vulnerable_copy(self):
-        """Find vulnerable copy instructions."""
-        for instruction in self.bv.mlil_instructions:
-            if instruction.operation == bn.MediumLevelILOperation.MLIL_CALL:
-                if type(instruction.dest) == bn.mediumlevelil.MediumLevelILConstPtr:
-                    symbol = self.bv.get_symbol_at(instruction.dest.constant)
-                    if symbol is not None:
-                        name = symbol.name
-                        if name == "memcpy" or name == "strcpy" or name == "strncpy":
-                            self.check_overflow(instruction)
-
+        
     def check_vulnerable_input(self):
         """Check for stack overflow in user input functions."""
         # variable for how much stdin has inputted so far
@@ -341,7 +324,7 @@ class Machine:
                     symbol = self.bv.get_symbol_at(instruction.dest.constant)
                     if symbol is not None:
                         name = symbol.name
-                        if name == "gets" or name == "fgets" or name == "read" or  name == "__isoc99_scanf":
+                        if name == "gets" or name == "fgets" or name == "read" or  name == "__isoc99_scanf" or name == "memcpy" or name == "strcpy" or name == "strncpy":
                             self.check_overflow(instruction)
 
     def get_padding_size(self, function: bn.function.Function, input_variable):
@@ -375,11 +358,6 @@ class Machine:
                 variable_set = True
 
         return size
-
-    def get_struct_size(self, function: bn.function.Function):
-
-        return size
-
 
     def get_goal_addr(self, function):
         goal_funcs = ["fopen", "system", "execve"]
@@ -424,6 +402,7 @@ class Machine:
         return None
 
     def get_first_var_value(self, address, var: bn.mediumlevelil.MediumLevelILVar):
+        """Traverse instruction backwards to either get constant value or parameter variable."""
         variables = []
         variables.insert(0,var.var.name)
         val = None
@@ -469,17 +448,14 @@ class Machine:
                     name = sym.name if sym != None else None
 
                     if name == "__builtin_strncpy":
-                        #print(f"Call {instr}  Op {instr.operands}")
                         dest = instr.params[0]
                         src = instr.params[1]
                         if type(dest) == bn.mediumlevelil.MediumLevelILAddressOf:
-                            dest_var = dest.operands[0]
-                            if type(dest_var) == bn.variable.Variable:
-                                dest_var = dest_var.name
-                                if dest_var == variables[0]:
-                                    if type(src) == bn.mediumlevelil.MediumLevelILConstData:
-                                        string = src.constant_data.data.escape(null_terminates=True)
-                                        return string
+                            dest_var = dest.operands[0].name
+                            if dest_var == variables[0]:
+                                if type(src) == bn.mediumlevelil.MediumLevelILConstData:
+                                    string = src.constant_data.data.escape(null_terminates=True)
+                                    return string
         return val
 
 
@@ -780,8 +756,8 @@ class Machine:
 
         full_reg = None
 
+        # Get full sized register and try to find gadget for it
         if register not in self.bv.arch.full_width_regs:
-            
             small_reg = None
             for reg in self.bv.arch.regs:
                 if register == reg:
@@ -866,27 +842,7 @@ class Machine:
         reg2 = min_gadget.split(b"[")[1].split(b",")[1].split(b"]")[0].split(b";")[0].strip()
         return min_gadget, reg1, reg2
 
-    def rename_analysis(self):
-        """Rename variables and functions in order to make analysis easier."""
-        self.canary_var = None
-        if self.canary:
-            for instruction in self.bv.mlil.instructions:
-                if instruction.operation == bn.MediumLevelILOperation.MLIL_CALL:
-                    if type(instruction.dest) == bn.mediumlevelil.MediumLevelILConstPtr:
-                        symbol = self.bv.get_symbol_at(instruction.dest.constant)
-                        if symbol is not None and symbol.name == "__stack_chk_fail":
-                            function = self.bv.get_function_at(instruction.address)
-                            variables = function.stack_layout
-                            canary_variable = variables[-3]
-                            self.canary_var = canary_variable
-                            print(canary_variable.name)
-                            # !FIXME This doesn't work in commercial on
-                            # linux for some reason
-                            canary_variable.set_name_async("canary")
-                            print(canary_variable.name)
-                            print(function.stack_layout)
 
-        return
 
 
 if __name__ == "__main__":
