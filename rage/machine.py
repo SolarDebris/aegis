@@ -169,39 +169,24 @@ class Machine:
             # being dereferenced
             if type(instr) == bn.highlevelil.HighLevelILAssign:
                 if type(instr.operands[0]) == bn.highlevelil.HighLevelILDeref: 
-    
-                    deref = instr.operands[0].operands[0]
-                    if type(deref) == bn.highlevelil.HighLevelILDeref:
-                        deref = deref.operands[0]
+                    instr = instr.operands[0].operands[0]
+                    if type(instr) == bn.highlevelil.HighLevelILDeref:
+                        instr = instr.operands[0]
 
-                    if type(deref) == bn.highlevelil.HighLevelILVar:
-                        pointer_var = deref
-                    elif type(deref) == bn.highlevelil.HighLevelILAdd:
-
-                        # Check first operand of hlil add
-                        if type(deref.operands[0]) == bn.highlevelil.HighLevelILMul:
-                            mul = deref.operands[0]
-                            if type(mul.operands[0]) == bn.highlevelil.HighLevelILConst:
-                                size = mul.operands[0].constant
-                            elif type(mul.operands[1]) == bn.highlevelil.HighLevelILConst:
-                                size = mul.operands[1].constant
-                        elif type(deref.operands[0]) == bn.highlevelil.HighLevelILLsl:
-                            size = 1 << deref.operands[0].operands[1].constant
-                        elif type(deref.operands[0]) == bn.highlevelil.HighLevelILConstPtr:
-                            addr = deref.operands[0].constant
-
-                        # Check second operand of hlil add
-                        if type(deref.operands[1]) == bn.highlevelil.HighLevelILMul:
-                            mul = deref.operands[1]
-                            if type(mul.operands[0]) == bn.highlevelil.HighLevelILConst:
-                                size = mul.operands[0].constant
-                            elif type(mul.operands[1]) == bn.highlevelil.HighLevelILConst:
-                                size = mul.operands[1].constant
-                        elif type(deref.operands[1]) == bn.highlevelil.HighLevelILLsl:
-                            size = 1 << deref.operands[1].operands[1].constant
-                        elif type(deref.operands[1]) == bn.highlevelil.HighLevelILConstPtr:
-                            addr = deref.operands[1].constant
-
+                if type(instr) == bn.highlevelil.HighLevelILVar:
+                    pointer_var = instr
+                elif type(instr) == bn.highlevelil.HighLevelILAdd:
+                    # Check both operands of hlil add
+                    for op in instr.operands:
+                        if type(op) == bn.highlevelil.HighLevelILMul:
+                            mul = op.operands
+                            for op_mul in mul:
+                                if type(op_mul) == bn.highlevelil.HighLevelILConst:
+                                    size = op_mul.constant
+                        elif type(op) == bn.highlevelil.HighLevelILLsl:
+                            size = 1 << op.operands[1].constant
+                        elif type(op) == bn.highlevelil.HighLevelILConstPtr:
+                            addr = op.constant
 
             elif type(instr) == bn.highlevelil.HighLevelILVarInit:
                 if type(instr.operands[0]) == bn.highlevelil.HighLevelILDeref:
@@ -209,31 +194,19 @@ class Machine:
                 var = instr.operands[0]
 
                 if type(instr.operands[1]) == bn.highlevelil.HighLevelILAdd:
-                    add = instr.operands[1]
+                    add = instr.operands
 
-                    # Check first operand of hlil add
-                    if type(add.operands[0]) == bn.highlevelil.HighLevelILMul:
-                        mul = add.operands[0]
-                        if type(mul.operands[0]) == bn.highlevelil.HighLevelILConst:
-                            size = mul.operands[0].constant
-                        elif type(mul.operands[1]) == bn.highlevelil.HighLevelILConst:
-                            size = mul.operands[1].constant
-                    elif type(add.operands[0]) == bn.highlevelil.HighLevelILLsl:
-                        size = 1 << add.operands[0].operands[1].constant
-                    elif type(add.operands[0]) == bn.highlevelil.HighLevelILConstPtr:
-                        addr = add.operands[0].constant
-
-                    # Check second operand of hlil add
-                    if type(add.operands[1]) == bn.highlevelil.HighLevelILMul:
-                        mul = add.operands[1]
-                        if type(mul.operands[0]) == bn.highlevelil.HighLevelILConst:
-                            size = mul.operands[0].constant
-                        elif type(mul.operands[1]) == bn.highlevelil.HighLevelILConst:
-                            size = mul.operands[1].constant
-                    elif type(add.operands[1]) == bn.highlevelil.HighLevelILLsl:
-                        size = 1 << add.operands[1].operands[1].constant
-                    elif type(add.operands[1]) == bn.highlevelil.HighLevelILConstPtr:
-                        addr = add.operands[1].constant
+                    # Check boths operand of hlil add
+                    for op in add:
+                        if type(op) == bn.highlevelil.HighLevelILMul:
+                            mul = op.operands
+                            for op_mul in mul:
+                                if type(op_mul) == bn.highlevelil.HighLevelILConst:
+                                    size = op_mul.constant
+                        elif type(op) == bn.highlevelil.HighLevelILLsl:
+                            size = 1 << op.operands[1].constant
+                        elif type(op) == bn.highlevelil.HighLevelILConstPtr:
+                            addr = op.constant
 
                 if pointer_var != None and instr.operands[0] == pointer_var.var:
 
@@ -242,63 +215,40 @@ class Machine:
                 call = instr.operands[0]
                 if type(call) == bn.highlevelil.HighLevelILConstPtr:
                     call_name = self.bv.get_symbol_at(call.constant).name if self.bv.get_symbol_at(call.constant) else None
-                    if call_name == "memcpy":
-                        memory = instr.operands[1][0]
+                    if call_name == "memcpy" or call_name == "read":
+                        memory = instr.params[0] if call_name == "memcpy" else instr.params[1]
                         if type(memory) == bn.highlevelil.HighLevelILAdd:
-                            if type(memory.operands[0]) == bn.highlevelil.HighLevelILLsl:
-                                size = 1 << memory.operands[0].operands[1].constant
-                            elif type(memory.operands[0]) == bn.highlevelil.HighLevelILMul:
-                                mul = memory.operands[0]
-                                if type(mul.operands[0]) == bn.highlevelil.HighLevelILConst:
-                                    size = mul.operands[0].constant
-                                elif type(mul.operands[1]) == bn.highlevelil.HighLevelILConst:
-                                    size = mul.operands[1].constant
-
-                            elif type(memory.operands[0]) == bn.highlevelil.HighLevelILConstPtr:
-                                addr = memory.operands[0].constant
+                            for add_op in memory.operands:
+                                if type(add_op) == bn.highlevelil.HighLevelILLsl:
+                                    size = 1 << add_op.operands[1].constant
+                                elif type(add_op) == bn.highlevelil.HighLevelILMul:
+                                    for mul_op in add_op.operands:
+                                        if type(mul_op) == bn.highlevelil.HighLevelILConst:
+                                            size = mul_op.constant
+                                elif type(add_op) == bn.highlevelil.HighLevelILConstPtr:
+                                    addr = add_op.constant
                                 
-                            if type(memory.operands[1]) == bn.highlevelil.HighLevelILLsl:
-                                size = 1 << memory.operands[1].operands[1].constant
-                            elif type(memory.operands[1]) == bn.highlevelil.HighLevelILMul:
-                                mul = memory.operands[1]
-                                if type(mul.operands[0]) == bn.highlevelil.HighLevelILConst:
-                                    size = mul.operands[0].constant
-                                elif type(mul.operands[1]) == bn.highlevelil.HighLevelILConst:
-                                    size = mul.operands[1].constant
-
-                            elif type(memory.operands[1]) == bn.highlevelil.HighLevelILConstPtr:
-                                addr = memory.operands[1].constant
-
                         elif type(memory) == bn.highlevelil.HighLevelILMul:
-                            mul = memory.operands
-                            if type(mul.operands[0]) == bn.highlevelil.HighLevelILConst:
-                                size = mul.operands[0].constant
-                            elif type(mul.operands[1]) == bn.highlevelil.HighLevelILConst:
-                                size = mul.operands[1].constant
-                    elif call_name == "read":
-                        dest = instr.params[1]
-                        if type(dest) == bn.highlevelil.HighLevelILAddressOf:
-                            if type(dest.operands[0]) == bn.highlevelil.HighLevelILArrayIndex:
-                                ind = dest.operands[0]
-                                if type(ind.operands[0]) == bn.highlevelil.HighLevelILDeref:
-                                    deref = ind.operands[0].operands[0]
-                                    if type(deref) == bn.highlevelil.HighLevelILConstPtr:
-                                        addr = deref.constant
-                                elif type(ind.operands[0]) == bn.highlevelil.HighLevelILConstPtr:
-                                    addr = ind.operands[0].constant
-                                    
+                            for mul_op in memory.operands:
+                                if type(mul_op) == bn.highlevelil.HighLevelILConst:
+                                    size = mul_op.constant
+                        elif type(memory) == bn.highlevelil.HighLevelILAddressOf:
+                            if type(memory.operands[0]) == bn.highlevelil.HighLevelILArrayIndex:
+                                ind_op = memory.operands[0]
+                                buffer = ind_op.operands[0]
+                                if type(buffer) == bn.highlevelil.HighLevelILDeref:
+                                    buffer = buffer.operands[0]
+                                index = ind_op.operands[1]
+                                if type(buffer) == bn.highlevelil.HighLevelILConstPtr:
+                                    addr = buffer.constant
                                     var = self.bv.get_data_var_at(addr)
                                     if var != None:
                                         size = var.type.count
-
-                                if type(ind.operands[1]) == bn.highlevelil.HighLevelILLsl:
-                                    size = 1 << ind.operands[1].operands[1].constant
-                                elif type(ind.operands[1]) == bn.highlevelil.HighLevelILMul:
-                                    if type(ind.operands[1].operands[1]) == bn.highlevelil.HighLevelILConst:
-                                        size = ind.operands[1].operands[1].constant
-
-
-
+                                if type(index) == bn.highlevelil.HighLevelILLsl:
+                                    size = 1 << index.operands[1].constant
+                                elif type(index) == bn.highlevelil.HighLevelILMul:
+                                    if type(index.operands[1]) == bn.highlevelil.HighLevelILConst:
+                                        size = index.operands[1].constant
         if set_pointer != None:
 
             if type(set_pointer) == bn.highlevelil.HighLevelILAdd:
@@ -311,8 +261,7 @@ class Machine:
                         if addr == None:
                             addr = base.operands[0].constant
                 if type(offset) == bn.highlevelil.HighLevelILLsl:
-                    value = offset.operands[1].constant
-                    size = 1 << value
+                    size = 1 << offset.operands[1].constant
 
         if addr != None:
             aegis_log.info(f"Found array out of bounds at base {hex(addr)} with size {size}")
@@ -440,9 +389,7 @@ class Machine:
                 setvar = instr.operands[0]
 
                 if variables[0] == setvar.name:
-                    if type(val) == bn.mediumlevelil.MediumLevelILConst:
-                        return val.constant
-                    elif type(val) == bn.mediumlevelil.MediumLevelILConstPtr:
+                    if type(val) == bn.mediumlevelil.MediumLevelILConst or type(val) == bn.mediumlevelil.MediumLevelILConstPtr:
                         return val.constant
                     elif type(val) == bn.mediumlevelil.MediumLevelILAddressOf:
                         variables.insert(0, val.operands[0].name)
