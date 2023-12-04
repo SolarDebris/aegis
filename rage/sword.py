@@ -1,32 +1,25 @@
-import sys
-import lldb
-import binaryninja as bn
+import sys #import binaryninja as bn
+import subprocess
 
+from pwn import *
 
 
 class Sword:
     def __init__(self, binary):
         self.binary = binary
-        self.debugger = lldb.SBDebugger.Create()
-        self.target = debugger.CreateTargetWithFileAndArch(binary, lldb.LLDB_ARCH_DEFAULT)
+        self.gdb_process = None
 
-        if not self.target.IsValid():
-            print(f"Error: Unable to create a target for {binary}")
-            return
-
-        
-
-    def get_libc_offset(self, stdin):
-        """Return libc offset for a leak"""
-        return None
-
-    def check_leak(self, stdin):
-        return None
-
+    def start_gdb(self):
+        #self.gdb_process = subprocess.Popen(gdb_command, shell=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        self.gdb_process = process(["gdb", ("%s" % self.binary)])
 
 
 if __name__ == "__main__":
     
-    sword = Sword("../bins/bin-ret2one-0")
-    stdin_string = b"Hello"
-    sword.get_libc_offset(stdin_string)
+    sword = Sword("../bins/bin-ret2win-0")
+    
+    sword.start_gdb()
+
+    sword.gdb_process.sendline(b"continue")
+    print(sword.gdb_process.recvall(timeout=2))
+

