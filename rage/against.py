@@ -2,6 +2,7 @@ import logging
 import r2pipe
 import binaryninja as bn
 import re
+import random
 
 from pwn import *
 from binascii import *
@@ -473,34 +474,48 @@ class Against:
 
     def verify_flag(self):
         """Return whether the exploit worked or didn't."""
-        if self.recieve_flag() == 1 or self.flag != None:
-            aegis_log.critical(f"Exploit works got flag {self.flag}")
-            return True
+        if self.recieve_flag() == 1:
+            if self.flag != None or self.remote_flag != None:
+                return True
+            else:
+                for i in range(5):
+                    aegis_log.critical(f"[{self.binary_name} Exploit worked flag not recieved")
+                    self.process = self.start(self.option)
+                    self.send_exploit()
+                    if self.recieve_flag() == 1:
+                        if self.flag != None or self.remote_flag != None:
+                            return True
+            return False
         else:
-            aegis_log.error(f"Exploit failed")
+            for i in range(5):
+                aegis_log.critical(f"[{self.binary_name} Exploit failed trying again")
+                self.process = self.start(self.option)
+                self.send_exploit()
+                if self.recieve_flag() == 1:
+                    if self.flag != None or self.remote_flag != None:
+                            return True
+ 
+            aegis_log.warn(f"[{self.binary_name}] Exploit failed")
+
             return False
 
     def recieve_flag(self):
         """Return the flag after parsing it from the binary."""
         try:
             # Just for safe measures ofc
+            for i in range(random.choice(range(1,10))):
+                self.process.sendline(b"cat flag.txt")
+            self.process.sendline(b"exit")
 
-            
-            if self.process.poll() == None:
-                self.process.sendline(b"cat flag.txt")
-                self.process.sendline(b"cat flag.txt")
-                self.process.sendline(b"cat flag.txt")
-                self.process.sendline(b"exit")
-
-            output = self.process.recvall(timeout=2)
+            output = self.process.recvall(timeout=5)
             # Don't want to print big output from format write
             if self.format_exploit == None:
-                aegis_log.debug(f"Recieved output {output}")
+                aegis_log.debug(f"[{self.binary_name}] Recieved output {output}")
             match = self.flag_regex.search(output)
 
             if match:
                 flag = self.flag_format.decode("utf-8") + "{" + match.group(1).decode('utf-8') + "}" 
-                aegis_log.critical(f"Captured the flag !!! {flag}")
+                aegis_log.critical(f"[{self.binary_name}] Captured the flag !!! {flag}")
                 if self.option != "REMOTE":
                     self.flag = flag
                 else:
@@ -508,8 +523,8 @@ class Against:
 
                 return 1
             elif b"command not found" in output:
-                aegis_log.error(f"Error from shell command")
+                aegis_log.error(f"[{self.binary_name}] Error from shell command")
                 return 1
         except EOFError as e:
-            aegis_log.error(f"Error recieving flag {e}")
+            aegis_log.warn(f"Error recieving flag {e}")
             return -1

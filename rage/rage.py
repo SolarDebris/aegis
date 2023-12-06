@@ -69,6 +69,7 @@ class BufferOverflow(angr.Analysis):
         simgr = self.project.factory.simgr(state)
         simgr.stashes["mem_corrupt"] = []
 
+        #simgr.use_technique(angr.exploration_techniques.Timeout(timeout=10))
         # angr gets angy when fgets has a large buffer.
         # in this case 60000
         def stop_lg_fgets(state):
@@ -92,7 +93,7 @@ class BufferOverflow(angr.Analysis):
                 self.has_format = True
                 aegis_log.warn(f"Found symbolic format string")
             else:
-                aegis_log.error(f"Angr error {e}")
+                aegis_log.warn(f"Angr error {e}")
 
         return self.symbolic_padding
 

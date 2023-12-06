@@ -6,6 +6,7 @@ import logging
 
 import binaryninja as bn
 from rage.log import aegis_log
+from ropper import RopperService
 
 
 class Machine:
@@ -25,6 +26,19 @@ class Machine:
 
         self.padding_size = 0
         self.exploit_size = 0
+
+
+        options = {
+            'color' : False,     
+            'badbytes': '0a',   
+            'all' : False,      
+            'type' : 'rop',     
+            'detailed' : False
+        }
+        
+        self.rop = RopperService(options)
+
+
 
         self.aslr = False
         self.canary = False
@@ -585,6 +599,21 @@ class Machine:
     def find_pop_reg_gadget(self, register):
         """Return a rop gadget to control a register using a pop gadget."""
 
+        """
+        self.rop.loadGadgetsFor(self.binary)
+        gadgets = self.rop.searchPopPopRet(name=self.binary)
+
+        print(gadgets)
+        if not gadgets:
+            return None
+
+        # Find the gadget with the least instructions
+        min_gadget = min(gadgets, key=lambda gadget: gadget.count(b";"))
+
+        aegis_log.info(f"Found gadget for {register}: {min_gadget}")
+
+        return min_gadget
+        """
         output = subprocess.check_output(["ROPgadget", "--binary", self.binary, "--re", f"{register}", "--only", "pop|ret"]).split(b"\n")
         output.pop(0)
         output.pop(0)
@@ -606,7 +635,11 @@ class Machine:
 
             if instructions <= min_instructions:
                 min_instructions = instructions
-                min_gadget = gadget
+
+                addr = gadget.split(b":")[0]
+                #print(addr)
+                if b"0a" not in addr:
+                    min_gadget = gadget
 
         aegis_log.info(f"Found gadget for {register}: {min_gadget}")
         return min_gadget

@@ -237,20 +237,20 @@ class Aegis:
             return 
         
         challenge_url = f"{self.ctfd}/api/v1/challenges/attempt"
+        print(challenge_url)
         data = json.dumps({"challenge_id" : self.chal_id, "submission" : flag})
 
-        if flag != open("flag.txt", "r").read():
-            response = requests.post(challenge_url, headers=self.headers, data=data)
-            json_data = response.json()
-            if "data" in json_data:
-                message = json_data["data"]["message"]
-            else:
-                message = json_data
+        response = requests.post(challenge_url, headers=self.headers, data=data)
+        json_data = response.json()
+        if "data" in json_data:
+            message = json_data["data"]["message"]
+        else:
+            message = json_data
 
-            if message == "Correct":
-                aegis_log.critical(f"[{self.binary_name}] Got correct flag: {flag}")
-            else:
-                aegis_log.error(f"[{self.binary_name}] Flag submission failed: {message} for {flag}")
+        if message == "Correct":
+            aegis_log.critical(f"[{self.binary_name}] Got correct flag: {flag}")
+        else:
+            aegis_log.error(f"[{self.binary_name}] Flag submission failed: {message} for {flag}")
             
 
     def exploit(self):
@@ -280,24 +280,19 @@ class Aegis:
             self.against.verify_flag()
 
             if self.against.flag != None:
-                #self.remote_wait()  
                 self.against.process = self.against.start("REMOTE")
                 self.against.send_exploit()                    
                 aegis_log.debug(f"[{self.binary_name}] Sent exploit to remote at {self.ip}")
                 if self.against.verify_flag() == True:
                     self.send_flag(self.against.remote_flag) 
-
-                #self.remote_signal()
                                     
         else:
             if self.against.flag != None:
-                #self.remote_wait()
                 self.against.process = self.against.start("REMOTE")
                 self.against.send_exploit()
                 aegis_log.debug(f"[{self.binary_name}] Sent exploit to remote at {self.ip}")
                 if self.against.verify_flag() == True:
                     self.send_flag(self.against.remote_flag) 
-                #self.remote_signal()
 
  
 def print_title():
@@ -361,8 +356,8 @@ def print_title():
     ▒▒▒▒░░░░░░░░░░░░     
     ▒▒▒▒▒▒▒▒░░░░░░░░   
     """
-    #print(aegis_title)
-    #print(pillar)
+    print(aegis_title)
+    print(pillar)
 
 def exploit_binary(binary, libc, ip, port, ctfd, id):
     aeg = Aegis(binary, libc, ip, port, ctfd, None, id)
@@ -370,10 +365,24 @@ def exploit_binary(binary, libc, ip, port, ctfd, id):
     aeg.symbolic_analysis()
     aeg.setup_exploit()
 
-    for i in range(5):
+    if aeg.against.flag != None:
+        potfile = open(".potfile", "a")
+
+        string = aeg.binary_name + " " +  aeg.against.flag 
         if aeg.against.remote_flag != None:
-            break
-        aeg.setup_exploit()
+            string += " " + aeg.against.remote_flag
+        string += "\n"
+        
+        potfile.write(string)
+        potfile.close()
+    else:
+        missing = open(".missing", "a")
+        missing.write(aeg.binary_name + "\n")
+        missing.close()
+
+
+ 
+    return aeg.against.flag
 
 
 
@@ -426,7 +435,7 @@ if __name__ == "__main__":
         else:
             for chal in sorted(os.listdir(arguments.batch)):
                 file = arguments.batch + chal
-                if ".git" in file:
+                if ".git" in file or ".sh" in file or ".py" in file:
                     continue
 
                 if arguments.thread:
