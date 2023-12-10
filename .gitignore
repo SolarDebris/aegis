@@ -2,4 +2,6 @@
 *.out
 bins/*
 challenges.csv
+.potfile
+.missing
 

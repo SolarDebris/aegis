@@ -13,7 +13,6 @@ class Machine:
     """Uses binaryninja and ROPgadget for static analysis and grabbing info from binary."""
 
     def __init__(self, binary):
-        
         self.binary = binary
         self.bv = bn.load(self.binary)
         self.arch = self.bv.arch.name
@@ -27,7 +26,6 @@ class Machine:
         self.padding_size = 0
         self.exploit_size = 0
 
-
         options = {
             'color' : False,     
             'badbytes': '0a',   
@@ -37,8 +35,6 @@ class Machine:
         }
         
         self.rop = RopperService(options)
-
-
 
         self.aslr = False
         self.canary = False
@@ -376,12 +372,8 @@ class Machine:
 
     def get_input_delimiter(self, function):
         """Get the input delimiter."""
-        func = self.bv.get_functions_by_name(function)
+        rodata = self.sections[".rodata"]
 
-        if len(func) > 0:
-            func = func[0]
-        else:
-            return None
 
         return None
 

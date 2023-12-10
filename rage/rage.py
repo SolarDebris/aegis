@@ -77,14 +77,15 @@ class BufferOverflow(angr.Analysis):
             if size >= 1000:
                 simgr.drop(stash = "active")
         
-        def stop_memmem(state):
-            aegis_log.warning(f"Found memmem setting timeout to 5 sec")
+        def stop_bs(state):
             simgr.use_technique(angr.exploration_techniques.Timeout(timeout=5))
             
             
  
         self.project.hook_symbol("fgets", stop_lg_fgets)
-        self.project.hook_symbol("memmem", stop_memmem)
+        self.project.hook_symbol("memmem", stop_bs)
+        self.project.hook_symbol("md5init", stop_bs)
+
 
         simgr.explore(step_func=self.check_memory_corruption)
 

