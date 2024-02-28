@@ -6,3 +6,4 @@ pwn
 r2pipe
 r2
 ropper
+rich
