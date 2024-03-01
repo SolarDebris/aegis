@@ -53,11 +53,15 @@ This is an updated version of RageAgainstTheMachine that is meant to vastly impr
 
 ### Script
 
-This will include running the binary with running all three modules in the binary and choosing which exploit to use. It will also include the logging and ctfd submit script.
+The ./aegis script is what will setup the control flow for analyzing and exploiting the binary. It will also deal with multithreading and submitting stuff to ctfd. 
+To automatically submit flags with ctfd you need to have an environment variable `CTFD_TOK` and set it to your ctfd token. You will also need to run the script `get_chals_list.sh` which
+will grab a list of all of the challenges and put it into `bininfo/challenges.csv`. To run it multithreaded add `-thread` when you run the command. To exploit multiple files, run `./aegis -batch (bininfo/challenges.csv)` or `./aegis -batch bins/`
+
 
 ### Static Analysis
 
-The static analyis file will check for is things like printf vulnerabilities and snippets of code that have vulnerabilities. It will also check symbol tables, the got, plt, and data. This module is stored in the machine.py file and is used to grab information out of the binary.
+The static analyis file, `rage/machine.py` will check for is things like printf vulnerabilities and snippets of code that have vulnerabilities using the binaryninja python api. It will also check symbol tables, the got, plt, and data.
+It will also find rop gadgets using ROPgadget as well and sort for the most efficient gadget. 
 
 ### Dynamic Analysis
 
@@ -67,14 +71,12 @@ The main purpose will be to try to either wrap GDB to make it headless or to use
 ### Symbolic Analysis
 
 The main goal of the symbolic analysis module will be trying to deal with the edge cases that aren't expected in the dynamic and static analysis section. This is mainly useful for path finding, say if we need to know how to get to a specific function.
+This is in the `rage/rage.py` file and uses angr to symbollically find the padding for the buffer overflow.
 
-### Exploit Generator
+### Exploit Management
 
-The exploit generator will take all the information from the static, dynamic, and symbolic analysis and create the exploit.
-
-### Exploit Runner
-
-The exploit runner will run the binary locally (if there is one) and then check if there is a flag in the output. If there is then send it to the remote server and get the flag.
+The exploit generator will take all the information from the static, dynamic, and symbolic analysis and create parts of the exploit, send the exploit and verify it.'
+The file is `rage/against.py` and where exploits can be added. 
 
 ##### Running the program
 
