@@ -392,8 +392,16 @@ class Machine:
 
     def get_got_functions(self, function):
         """Return all got functions."""
-        # TODO
-        function = self.bv.get_functions_by_name(function)[0]
+
+
+        functions = self.bv.get_functions_by_name(function)
+
+        if len(functions) > 0:
+            function = functions[0]
+        else:
+            return []
+
+
         
         plt_section = self.bv.get_section_by_name(".plt")
         got_funcs = []
