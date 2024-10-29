@@ -61,7 +61,7 @@ class Aegis:
             self.has_format = True 
             self.got_targets = self.machine.find_target_got_entries(printf_addrs[0])
         else:
-            self.got_targets = self.machine.get_got_functions("vuln")
+            self.got_targets = self.machine.get_got_functions("main")
 
     def symbolic_analysis(self):
         if self.array_write == (None, None) or self.array_write == None:
@@ -354,9 +354,12 @@ def exploit_binary(binary, libc, ip, port, ctfd, id):
         potfile.write(string)
         potfile.close()
     else:
-        missing = open("bininfo/.missing", "a")
-        missing.write(aeg.binary_name + "\n")
-        missing.close()
+        try:
+            missing = open("bininfo/.missing", "a")
+            missing.write(aeg.binary_name + "\n")
+            missing.close()
+        except:
+            aegis_log.warning(".missing file not found")
 
 
  
@@ -368,7 +371,10 @@ if __name__ == "__main__":
     logging.getLogger("angr").setLevel(logging.CRITICAL)
     logging.getLogger("os").setLevel(logging.CRITICAL)
     logging.getLogger("pwnlib").setLevel(logging.CRITICAL)
+
     logging.getLogger("aegis_log").setLevel(logging.DEBUG)
+
+
 
     parser = argparse.ArgumentParser( 
         prog = "Aegis", 

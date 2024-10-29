@@ -1,22 +1,22 @@
-import logging
-import colorama
+from rich.console import Console 
 
-colorama.init()
-aegis_log = logging.getLogger('aegis_log')
+from rich.logging import *
+
+aegis_log = logging.getLogger('aegis_log') 
 aegis_log.setLevel(logging.DEBUG)
+console = Console()
 
 COLORS = {
-    logging.DEBUG: colorama.Fore.CYAN,     
-    logging.INFO: colorama.Fore.GREEN,     
-    logging.WARNING: colorama.Fore.MAGENTA, 
-    logging.ERROR: colorama.Fore.RED,       
-    logging.CRITICAL: colorama.Fore.YELLOW
-
+    logging.DEBUG: "cyan",
+    logging.INFO: "green",
+    logging.WARNING: "magenta",
+    logging.ERROR: "red",
+    logging.CRITICAL: "yellow"
 }
 
 def custom_formatter(record):
-    color = COLORS.get(record.levelno, colorama.Fore.WHITE)  
-    log_message = f"🛡️  {color}[{record.levelname}] ⚔️  - aegis: {record.msg}{colorama.Style.RESET_ALL}"
+    color = COLORS.get(record.levelno, "white")
+    log_message = f"🛡️  [bold]{color}[{record.levelname}] ⚔️  - aegis:[/bold] {record.msg}"
     return log_message
 
 class UniqueLogFilter(logging.Filter):
@@ -35,12 +35,9 @@ formatter.format = custom_formatter
 unique_log_filter = UniqueLogFilter()
 aegis_log.addFilter(unique_log_filter)
 
-
-console_handler = logging.StreamHandler()
-console_handler.setFormatter(formatter)
-
-aegis_log.addHandler(console_handler)
-
+handler = RichHandler(console=console, show_time=False, rich_tracebacks=True)
+handler.setFormatter(formatter)
+aegis_log.addHandler(handler)
 
 if __name__ == "__main__":
     aegis_log.info("This is an info message")
@@ -48,4 +45,5 @@ if __name__ == "__main__":
     aegis_log.error("This is an error message")
     aegis_log.debug("This is a debug message")
     aegis_log.critical("Critical")
+
 
