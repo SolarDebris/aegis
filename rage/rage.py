@@ -63,7 +63,7 @@ class BufferOverflow(angr.Analysis):
         state = self.project.factory.entry_state(
             start_addr = self.project.loader.find_symbol("main"),
             stdin = self.symbolic_input,
-            add_options = angr.options.unicorn
+            #add_options = angr.options.unicorn
         )
 
         simgr = self.project.factory.simgr(state)

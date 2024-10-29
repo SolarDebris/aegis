@@ -41,7 +41,8 @@ class Against:
         self.flag = None
         self.remote_flag = None
         self.flag_format = flag_format
-        self.flag_regex = re.compile(re.escape(flag_format) + b"{([^}]*)}")
+        #self.flag_regex = re.compile(re.escape(flag_format) + b"{([^}]*)}")
+        self.flag_regex = re.compile(b"[a-zA-Z0-9]+{([^}]*)}")
 
 
         self.libc_offset_string = b""
