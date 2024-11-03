@@ -20,9 +20,10 @@ class Machine:
         self.strings = self.bv.strings
         self.sections = self.bv.sections
         self.segments = self.bv.segments
-        self.sys_reg_args = self.bv.platform.system_call_convention.int_arg_regs
-        self.reg_args = self.bv.platform.default_calling_convention.int_arg_regs
+    
 
+        self.sys_reg_args = self.bv.arch.calling_conventions["linux-syscall"].int_arg_regs
+        self.reg_args = self.bv.platform.default_calling_convention.int_arg_regs
         self.padding_size = 0
         self.exploit_size = 0
 
@@ -321,9 +322,13 @@ class Machine:
 
             if type(caller) != bn.mediumlevelil.MediumLevelILConstPtr:
                 continue
+
             sym = self.bv.get_symbol_at(caller.constant)
 
-            if sym != None and sym.name == "printf" or sym.name == "puts":
+            if sym == None:
+                continue
+
+            if sym.name == "printf" or sym.name == "puts":
                 params = instr.params
                 format = params[0]
                 if type(format) == bn.mediumlevelil.MediumLevelILConstPtr:

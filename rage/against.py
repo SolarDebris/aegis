@@ -268,7 +268,7 @@ class Against:
 
         while match == None and attempts <= 20:  
             try:
-                output = p.recvline(timeout=2)
+                output = p.recvline(timeout=1)
             except EOFError as e:
                 aegis_log.error(f"[{self.binary_name}] Could not find libc leak {e}")
                 break
@@ -489,7 +489,13 @@ class Against:
 
 
     def send_exploit(self):
-        self.exploit = self.padding + self.chain
+
+        if self.padding != None and self.chain != None:
+            self.exploit = self.padding + self.chain
+        elif self.exploit == None and self.format_exploit == None:
+            aegis_log.error(f"[{self.binary_name}] No exploit found")
+            return
+
         self.check_exploit()
 
         if len(self.exploit) > 0 and self.format_exploit == None:
