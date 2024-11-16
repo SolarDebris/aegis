@@ -9,7 +9,7 @@ formula:
         port: 0 
         binary: '' 
 
-    mitigigations:
+    mitigations:
         nx: true
         pie: false
         relro: false
@@ -101,5 +101,7 @@ formula:
                 data: ''
                 writable_addr: 0x0
                 
+    exploit:
+
 
         

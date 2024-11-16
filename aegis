@@ -12,6 +12,7 @@ from rage.rage import rAEG
 from rage.machine import Machine
 from rage.against import Against
 from rage.log import aegis_log
+from rage.poker import Poker
 
 
 class Aegis:
@@ -24,6 +25,10 @@ class Aegis:
         self.rop = ROP(self.elf)
 
         self.libc = ELF(libc) if libc != None else self.elf.libc
+
+        self.poker = Poker()
+
+        print(self.poker.formula["mitigations"]["nx"])
 
         self.ip = ip
         self.port = port
@@ -38,13 +43,13 @@ class Aegis:
         }
 
         self.symbol = rAEG(self.binary)
-        self.machine = Machine(self.binary)
+        self.machine = Machine(self.binary, self.formula)
         
         self.static_analysis() 
         self.against = Against(self.binary, self.libc, self.machine, self.ip, self.port, self.flag_format)
 
-        self.symbolic_padding = None
-        self.padding = None
+        #self.symbolic_padding = None
+        #self.padding = None
         self.failed = False
         self.has_format = False
         self.array_write = (None, None)
