@@ -1,0 +1,105 @@
+ 
+formula:
+    name: aegis_formula
+    description: Aegis exploitation formula
+    version: 0.1.0
+
+    challenge:
+        ip: ''
+        port: 0 
+        binary: '' 
+
+    mitigigations:
+        nx: true
+        pie: false
+        relro: false
+        aslr: false
+        fortify: false
+        canary: false
+
+    vulnerabilities:
+        stack_buffer_overflow:
+            padding_len: 0
+            padding: '' 
+         
+
+        format_string_vulnerability: 
+            printf_write:
+                offset: 0
+                format_string: ''
+
+            printf_read:
+                offset: 0
+                format_string: ''
+                leak_indexs: []
+
+
+        index_out_of_bound:
+            addr: 0x0
+            object_size: 0
+            index: 0
+
+        leak:
+            libc:
+              path: ''
+              addr: 0x0
+              offset: 0
+              symbol: ''
+              base: 0x0
+
+            heap:
+              addr: 0x0
+              offset: 0
+
+            stack:
+              canary:
+                value: 0x0
+              stack_leak:
+                addr: 0x0
+                value: 0
+
+    primitives:
+        one_gadget:
+            offset: 0x0
+
+        win_gadget:
+            addr: 0x0
+            args: [] 
+            
+
+        functions:
+            win: 0x0
+            system: 0x0
+            puts: 0x0
+            printf: 0x0
+            syscall: 0x0
+            execve: 0x0
+            open: 0x0
+            read: 0x0
+            write: 0x0
+            sendfile: 0x0
+
+        rop:
+            stack_pivot:
+                addr: 0x0
+                value: 0x0
+            ret2csu:
+                gadget_1: 0x0
+                gadget_2: 0x0
+                pointer: 0x0
+                got_func: 0x0
+            ret2dlresolve:
+                addr: 0x0
+                value: 0x0
+                func_name: ''
+                arg1: 0x0
+                arg2: 0x0
+                arg3: 0x0
+
+            write_gadget:
+                gadget_addr: 0x0
+                data: ''
+                writable_addr: 0x0
+                
+
+        
