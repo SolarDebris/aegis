@@ -61,6 +61,10 @@ class Against:
         self.padding = None
         self.libc_exploit = None
         self.exploit = None
+ 
+        self.shellcode = shellcraft.linux.sh()
+        self.orw_shellcode = shellcraft.linux.open("flag.txt")
+        #self.shellcode = shellcraft.linux.sh()
 
     def start(self, option):
         """Return the running process to a binary."""

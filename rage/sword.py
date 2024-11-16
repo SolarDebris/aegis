@@ -1,6 +1,7 @@
 import sys #import binaryninja as bn
+import os
 import subprocess
-import gdb
+#import gdb
 
 from pwn import *
 
@@ -9,13 +10,17 @@ class Sword:
     def __init__(self, binary):
         self.binary = binary
         self.gdb_process = None
+        self.script_path = os.path.dirname(os.path.realpath(__file__))
+        self.script = self.script_path + "/gdb/helios.py"
 
     def start_gdb(self):
         #self.gdb_process = subprocess.Popen(gdb_command, shell=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         self.gdb_process = process(["gdb", ("%s" % self.binary)])
+        self.gdb_process.sendline(b"set follow-fork-mode child")
+        self.gdb_process.sendline(b"set detach-on-fork off")
+        self.gdb_process.sendline(b"set detach-on-fork off")
+        self.gdb_process.sendline(b"source %s" % self.script)
 
-    def get_leak(self,pointer):
-        gdb.execute(f"xinfo {pointer}")
 
 
 if __name__ == "__main__":

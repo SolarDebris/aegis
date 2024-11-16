@@ -21,7 +21,6 @@ class Machine:
         self.sections = self.bv.sections
         self.segments = self.bv.segments
     
-
         self.sys_reg_args = self.bv.arch.calling_conventions["linux-syscall"].int_arg_regs
         self.reg_args = self.bv.platform.default_calling_convention.int_arg_regs
         self.padding_size = 0

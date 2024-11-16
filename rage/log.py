@@ -1,5 +1,6 @@
 from rich.console import Console 
-
+#import logging
+#from logging import *
 from rich.logging import *
 
 aegis_log = logging.getLogger('aegis_log') 
